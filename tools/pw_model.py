@@ -57,6 +57,20 @@ class Config:
     crc_init: int = 0
     crc_on_out: int = 0
     crc_on_in: int = 0
+    lc_nrzi: int = 0
+    lc_diff: int = 0
+    lc_bitclk: int = 0
+    lc_resync: int = 0
+    lc_stuff_n: int = 0
+    lc_stuff_any: int = 0
+    lc_bit_m1: int = 0
+    lc_sample: int = 0
+
+
+def _next_run(run, last, bit, any_):
+    if (bit == last) if any_ else bit:
+        return min(run + 1, 7)
+    return 1 if any_ else 0
 
 
 @dataclass
@@ -65,7 +79,7 @@ class Engine:
     imem: list[int]
     tx: list[int] = field(default_factory=list)   # host -> engine FIFO
     rx: list[int] = field(default_factory=list)   # engine -> host FIFO
-    fifo_depth: int = 4
+    fifo_depth: int = 8
     pc: int = 0
     x: int = 0
     y: int = 0
@@ -79,6 +93,11 @@ class Engine:
     pins_out: int = 0
     pins_oe: int = 0
     crc: int = 0
+    crc_hold: int = 0
+    lvl: int = 1
+    last: int = 0
+    run: int = 0
+    ph: int = 0
 
     def restart(self, pins=0):
         self.pc = self.cfg.start_pc
@@ -86,20 +105,30 @@ class Engine:
         self.osr_cnt = 8
         self.prev_pins = pins
         self.crc = self.cfg.crc_init
+        self.crc_hold, self.lvl, self.last, self.run, self.ph = 0, 1, 0, 0, 0
 
     def state(self):
         return dict(pc=self.pc, x=self.x, y=self.y, isr=self.isr, osr=self.osr,
                     isr_cnt=self.isr_cnt, osr_cnt=self.osr_cnt, dly=self.dly, to=self.to,
-                    pins_out=self.pins_out, pins_oe=self.pins_oe, crc=self.crc)
+                    pins_out=self.pins_out, pins_oe=self.pins_oe, crc=self.crc,
+                    crc_hold=self.crc_hold, lvl=self.lvl, last=self.last, run=self.run, ph=self.ph)
 
     def tick(self, pins, flags):
         """Run one tick. Returns (flag_set, flag_clr) masks."""
         c = self.cfg
         fset = fclr = 0
         pins &= M8
+        rot = ((pins | (pins << 8)) >> c.in_base) & M8
+        prot = ((self.prev_pins | (self.prev_pins << 8)) >> c.in_base) & M8
+        # bit clock: runs every tick, an edge on the IN pin re-aligns it
+        if c.lc_resync and ((rot ^ prot) & 1):
+            new_ph = 1
+        else:
+            new_ph = 0 if self.ph == c.lc_bit_m1 else (self.ph + 1) & M8
         if self.dly:
             self.dly -= 1
             self.prev_pins = pins
+            self.ph = new_ph
             return fset, fclr
 
         w = self.imem[self.pc] & 0xFFFF
@@ -112,8 +141,6 @@ class Engine:
             side = (ds >> 2) & 3 if c.side_count == 2 else (ds >> 3) & 1
         side_valid = c.side_count != 0 and (not c.side_en or (ds >> 3) & 1)
 
-        rot = ((pins | (pins << 8)) >> c.in_base) & M8
-        prot = ((self.prev_pins | (self.prev_pins << 8)) >> c.in_base) & M8
         n = arg & 0xF
         n = 8 if n == 0 or n > 8 else n
         mask = M8 >> (8 - n)
@@ -123,8 +150,18 @@ class Engine:
         rx_full = len(self.rx) >= self.fifo_depth
         status = (self.to << 2) | (int(rx_full) << 1) | int(tx_empty)
 
+        # line coder
+        line_mode = c.lc_nrzi or c.lc_diff or c.lc_bitclk or c.lc_stuff_n
+        strobe = self.ph == c.lc_sample
+        stuff_hit = c.lc_stuff_n != 0 and self.run == c.lc_stuff_n
+        stuff_bit = (1 - self.last) if c.lc_stuff_any else 0
+        se0 = c.lc_diff and not (rot & 1) and not ((rot >> 1) & 1)
+        rx_bit = int((rot & 1) == self.lvl) if c.lc_nrzi else rot & 1
+        emit = None
+
         # next state starts as the current state
         s = self.state()
+        s["ph"] = new_ph
         done, jump, jt = True, False, 0
 
         if op == 0:  # JMP
@@ -177,25 +214,49 @@ class Engine:
         elif op == 2:  # IN
             src = (arg >> 6) & 7
             v = {0: rot, 1: self.x, 2: self.y, 4: self.osr}.get(src, 0)
-            if c.in_shr:
-                t = ((self.isr >> n) | (v << (8 - n))) & M8
+            line_io = line_mode and src == 0 and n == 1
+            if line_io and c.lc_bitclk and not strobe:
+                done = False
+            elif line_io and se0:
+                s["to"] = 1
+            elif line_io and stuff_hit:
+                s["lvl"], s["last"] = rot & 1, rx_bit
+                s["run"] = _next_run(self.run, self.last, rx_bit, c.lc_stuff_any)
+                jump, jt = True, self.pc
             else:
-                t = ((self.isr << n) | (v & mask)) & M8
-            cnt = min(self.isr_cnt + n, 8)
-            if c.autopush and cnt >= push_t:
-                if rx_full:
-                    done = False
+                if line_io:
+                    v = rx_bit
+                    s["to"] = 0
+                if c.in_shr:
+                    t = ((self.isr >> n) | (v << (8 - n))) & M8
                 else:
-                    self.rx.append(t)
-                    s["isr"], s["isr_cnt"] = 0, 0
-            else:
-                s["isr"], s["isr_cnt"] = t, cnt
-            if done and c.crc_on_in:
-                s["crc"] = crc_feed(self.crc, v, n, c.in_shr, c.crc_poly)
+                    t = ((self.isr << n) | (v & mask)) & M8
+                cnt = min(self.isr_cnt + n, 8)
+                if c.autopush and cnt >= push_t:
+                    if rx_full:
+                        done = False
+                    else:
+                        self.rx.append(t)
+                        s["isr"], s["isr_cnt"] = 0, 0
+                else:
+                    s["isr"], s["isr_cnt"] = t, cnt
+                if done and c.crc_on_in and not self.crc_hold:
+                    s["crc"] = crc_feed(self.crc, v, n, c.in_shr, c.crc_poly)
+                if done and line_io:
+                    s["lvl"], s["last"] = rot & 1, rx_bit
+                    s["run"] = _next_run(self.run, self.last, rx_bit, c.lc_stuff_any)
+                if not done:
+                    s["to"] = self.to
 
         elif op == 3:  # OUT
             need = c.autopull and self.osr_cnt >= pull_t
-            if need and tx_empty:
+            line_io = line_mode and ((arg >> 6) & 7) == 0
+            if line_io and c.lc_bitclk and not strobe:
+                done = False
+            elif line_io and stuff_hit:
+                emit = stuff_bit
+                jump, jt = True, self.pc
+            elif need and tx_empty:
                 done = False
             else:
                 src = self.tx.pop(0) if need else self.osr
@@ -205,10 +266,12 @@ class Engine:
                 else:
                     t, new = src >> (8 - n), (src << n) & M8
                 s["osr"], s["osr_cnt"] = new & M8, cnt
-                if c.crc_on_out:
+                if c.crc_on_out and not self.crc_hold:
                     s["crc"] = crc_feed(self.crc, t, n, c.out_shr, c.crc_poly)
                 dst = (arg >> 6) & 7
-                if dst == 0:
+                if dst == 0 and line_io and n == 1:
+                    emit = t & 1
+                elif dst == 0:
                     s["pins_out"] = _map_pins(self.pins_out, t, c.out_base, c.out_count)
                 elif dst == 1:
                     s["x"] = t
@@ -278,7 +341,7 @@ class Engine:
         elif op == 7:  # CRC
             sub = (arg >> 6) & 7
             if sub == 0:
-                s["crc"] = c.crc_init
+                s["crc"], s["crc_hold"] = c.crc_init, 0
             elif sub == 1:
                 s["x"] = self.crc & M8
             elif sub == 2:
@@ -289,6 +352,19 @@ class Engine:
                 s["osr"], s["osr_cnt"] = (self.crc >> 8) & M8, 0
             elif sub == 5:
                 s["crc"] = crc_feed(self.crc, self.x, n, 1, c.crc_poly)
+            elif sub == 6:  # line reset
+                s["lvl"], s["last"], s["run"], s["ph"] = 1, 0, 0, 0
+            else:  # crc hold
+                s["crc_hold"] = 1
+
+        if emit is not None:
+            e_lvl = (self.lvl if emit else 1 - self.lvl) if c.lc_nrzi else emit
+            s["lvl"], s["last"] = e_lvl, emit
+            s["run"] = _next_run(self.run, self.last, emit, c.lc_stuff_any)
+            if c.lc_diff:
+                s["pins_out"] = _map_pins(self.pins_out, e_lvl | ((1 - e_lvl) << 1), c.out_base, 2)
+            else:
+                s["pins_out"] = _map_pins(self.pins_out, e_lvl, c.out_base, 1)
 
         if side_valid:
             key = "pins_oe" if c.side_pindirs else "pins_out"

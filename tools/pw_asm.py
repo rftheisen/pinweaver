@@ -16,7 +16,8 @@ Turns a text program into 16-bit instruction words. Syntax (see docs/isa.md):
     set  pins|x|y|pindirs, VALUE
     flag set|clear N
     nop
-    crc init|x|y|osr_lo|osr_hi      crc feed N   (N low bits of X, LSB first)
+    crc init|x|y|osr_lo|osr_hi|hold   crc feed N   (N low bits of X, LSB first)
+    line reset                        (line coder: level = idle, run = 0, bit clock = 0)
   Any instruction may end with `side V` and/or `[DELAY]`. Comments start with ; or #.
 """
 from __future__ import annotations
@@ -226,9 +227,9 @@ def _encode(line, labels, side_count, side_opt, nside, delay_max) -> int:
         v = 1 if args[0] == "set" else 0
         return word(OPS["set"], (4 << 6) | (v << 4) | (_num(args[1]) & 3))
     if mn == "crc":
-        subs = {"init": 0, "x": 1, "y": 2, "osr_lo": 3, "osr_hi": 4, "feed": 5}
+        subs = {"init": 0, "x": 1, "y": 2, "osr_lo": 3, "osr_hi": 4, "feed": 5, "hold": 7}
         if not args or args[0] not in subs:
-            raise AsmError("crc needs init|x|y|osr_lo|osr_hi|feed N")
+            raise AsmError("crc needs init|x|y|osr_lo|osr_hi|feed N|hold")
         n = 0
         if args[0] == "feed":
             n = _num(args[1])
@@ -236,6 +237,8 @@ def _encode(line, labels, side_count, side_opt, nside, delay_max) -> int:
                 raise AsmError("crc feed bit count must be 1..8")
             n &= 7
         return word(7, (subs[args[0]] << 6) | n)
+    if mn == "line" and args == ["reset"]:
+        return word(7, 6 << 6)
     raise AsmError(f"unknown instruction {mn}")
 
 

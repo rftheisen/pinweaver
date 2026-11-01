@@ -82,6 +82,16 @@ module tt_um_pinweaver (
     end
   end
 
+  // line coder config (addresses 40..43 engine 0, 44..47 engine 1)
+  reg [7:0] lccfg[0:7];
+  always @(posedge clk) begin
+    if (!rst_n) begin
+      for (k = 0; k < 8; k = k + 1) lccfg[k] <= 8'd0;
+    end else if (cfg_we && cfg_addr[7:3] == 5'd5) begin
+      lccfg[cfg_addr[2:0]] <= cfg_data;
+    end
+  end
+
   // global config: logic analyzer (addresses 32..39)
   reg [7:0] lacfg[0:7];
   always @(posedge clk) begin
@@ -104,13 +114,13 @@ module tt_um_pinweaver (
   wire       pop0, pop1, push0, push1;
   wire [3:0] fs0, fc0, fs1, fc1;
 
-  pw_fifo u_tx0 (.clk(clk), .rst_n(rst_n), .clr(restart[0]), .wr(tx_push[0]), .din(tx_data),
+  pw_fifo #(.AW(3)) u_tx0 (.clk(clk), .rst_n(rst_n), .clr(restart[0]), .wr(tx_push[0]), .din(tx_data),
                  .rd(pop0), .dout(txd0), .empty(tx_empty[0]), .full(tx_full[0]));
-  pw_fifo u_rx0 (.clk(clk), .rst_n(rst_n), .clr(restart[0]), .wr(push0), .din(rxd0),
+  pw_fifo #(.AW(3)) u_rx0 (.clk(clk), .rst_n(rst_n), .clr(restart[0]), .wr(push0), .din(rxd0),
                  .rd(rx_pop[0]), .dout(rx_head0), .empty(rx_empty[0]), .full(rx_full[0]));
-  pw_fifo u_tx1 (.clk(clk), .rst_n(rst_n), .clr(restart[1]), .wr(tx_push[1]), .din(tx_data),
+  pw_fifo #(.AW(3)) u_tx1 (.clk(clk), .rst_n(rst_n), .clr(restart[1]), .wr(tx_push[1]), .din(tx_data),
                  .rd(pop1), .dout(txd1), .empty(tx_empty[1]), .full(tx_full[1]));
-  pw_fifo u_rx1 (.clk(clk), .rst_n(rst_n), .clr(restart[1]), .wr(push1), .din(rxd1),
+  pw_fifo #(.AW(3)) u_rx1 (.clk(clk), .rst_n(rst_n), .clr(restart[1]), .wr(push1), .din(rxd1),
                  .rd(rx_pop[1]), .dout(rx_head1), .empty(rx_empty[1]), .full(rx_full[1]));
 
   pw_engine eng0 (
@@ -125,6 +135,8 @@ module tt_um_pinweaver (
       .wrap_bottom(cfg[8][5:0]), .wrap_top(cfg[9][5:0]), .start_pc(cfg[10][5:0]),
       .crc_poly({cfg[12], cfg[11]}), .crc_init({cfg[14], cfg[13]}),
       .crc_on_out(cfg[15][4]), .crc_on_in(cfg[15][5]),
+      .lc_nrzi(lccfg[0][0]), .lc_diff(lccfg[0][1]), .lc_bitclk(lccfg[0][2]), .lc_resync(lccfg[0][3]),
+      .lc_stuff_n(lccfg[0][6:4]), .lc_stuff_any(lccfg[0][7]), .lc_bit_m1(lccfg[1]), .lc_sample(lccfg[2]),
       .pc_o(pc0), .instr(instr0),
       .pins_in(pin_s2), .pins_out(out0), .pins_oe(oe0),
       .tx_empty(tx_empty[0]), .tx_data(txd0), .tx_pop(pop0),
@@ -144,6 +156,8 @@ module tt_um_pinweaver (
       .wrap_bottom(cfg[24][5:0]), .wrap_top(cfg[25][5:0]), .start_pc(cfg[26][5:0]),
       .crc_poly({cfg[28], cfg[27]}), .crc_init({cfg[30], cfg[29]}),
       .crc_on_out(cfg[31][4]), .crc_on_in(cfg[31][5]),
+      .lc_nrzi(lccfg[4][0]), .lc_diff(lccfg[4][1]), .lc_bitclk(lccfg[4][2]), .lc_resync(lccfg[4][3]),
+      .lc_stuff_n(lccfg[4][6:4]), .lc_stuff_any(lccfg[4][7]), .lc_bit_m1(lccfg[5]), .lc_sample(lccfg[6]),
       .pc_o(pc1), .instr(instr1),
       .pins_in(pin_s2), .pins_out(out1), .pins_oe(oe1),
       .tx_empty(tx_empty[1]), .tx_data(txd1), .tx_pop(pop1),

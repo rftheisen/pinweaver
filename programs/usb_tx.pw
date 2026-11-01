@@ -1,0 +1,56 @@
+; Low-speed USB (1.5 Mbit/s) packet transmitter: SYNC, PID, payload,
+; CRC16 from the hardware CRC unit, EOP. The line coder does NRZI, bit
+; stuffing and the D-/D+ pair; its bit clock times every bit, so there are
+; no hand-counted delays.
+;
+; Pins: D- = OUT base, D+ = OUT base + 1 (OUT count 2), SET group = D-, D+.
+; Config: out_shr 1, autopull (8); CRC poly 0x8005, init 0xFFFF, crc_on_out;
+;         line coder nrzi, diff, bitclk, stuff 6, bit = 33 ticks (clkdiv 0
+;         at 50 MHz), sample point 0.
+; Host: push (payload bits - 1), PID, payload bytes, then set flag 2.
+.program usb_tx
+    set pins, 1              ; J = idle (D- high, D+ low)
+.wrap_target
+    pull
+    out y, 8                 ; payload bit count - 1
+    wait 1 flag 2            ; the host has queued the whole packet
+    set pindirs, 3           ; drive J
+    line reset               ; NRZI starts from J, bit clock from 0
+    set x, 1
+    mov osr, ::x             ; 0x80 = SYNC
+    set x, 7
+sync:
+    out pins, 1
+    jmp x-- sync
+    set x, 7
+pid:
+    out pins, 1              ; autopull brings in the PID
+    jmp x-- pid
+    crc init                 ; the CRC covers the payload only
+    mov x, y
+data:
+    out pins, 1
+    jmp x-- data
+    crc hold                 ; freeze it: sending the CRC must not change it
+    crc y
+    mov y, ~y
+    mov osr, ::y             ; inverted CRC, top bit first
+    set x, 7
+crc_hi:
+    out pins, 1
+    jmp x-- crc_hi
+    crc x
+    mov x, ~x
+    mov osr, ::x
+    set x, 7
+crc_lo:
+    out pins, 1
+    jmp x-- crc_lo
+    set y, 10
+    mov osr, ::y             ; 0x50 = SE0, SE0, J, J as 2-bit pin pairs
+    out pins, 2              ; SE0   (2-bit OUTs are written raw, still on the bit clock)
+    out pins, 2              ; SE0
+    out pins, 2              ; J
+    out pins, 2              ; one more bit time of J
+    set pindirs, 0           ; let go of the bus
+.wrap

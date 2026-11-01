@@ -1,0 +1,22 @@
+; Low-speed USB packet receiver. The line coder undoes NRZI and bit
+; stuffing; its bit clock re-aligns on every edge (a tiny DPLL), so it
+; follows a sender whose clock is a little off. SE0 (end of packet) makes
+; the coded IN set the timeout flag instead of reading a bit.
+;
+; Pins: in_base = D-, D+ = in_base + 1.
+; Config: in_shr 1, autopush (8); line coder nrzi, diff, bitclk, resync,
+;         stuff 6, bit = 33 ticks, sample point ~ half a bit.
+; The host gets SYNC (0x80), PID, payload, CRC low, CRC high; flag 1 = packet done.
+.program usb_rx
+.wrap_target
+    line reset               ; NRZI starts from J
+    mov isr, null
+    wait 0 pin 0             ; D- falls: SYNC starts
+bit:
+    in pins, 1               ; one bit, in the middle of its bit time
+    jmp timeout eop
+    jmp bit
+eop:
+    flag set 1
+    wait 1 pin 0             ; back to idle (J)
+.wrap

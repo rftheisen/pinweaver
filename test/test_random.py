@@ -11,7 +11,7 @@ import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import ClockCycles, FallingEdge
 
-from pw_driver import FIELDS, Host, Pins, config_bytes
+from pw_driver import FIELDS, Host, Pins, config_bytes, lc_bytes
 from pw_model import Chip, Config
 
 RUNS = int(os.environ.get("PW_RUNS", "8"))
@@ -29,10 +29,16 @@ def random_word(rng):
 def random_config(rng):
     cfg = {k: rng.getrandbits(w) for k, (_, _, w) in FIELDS.items()}
     cfg["clkdiv"] = rng.choice([0, 0, 0, 1, 2])
+    if rng.random() < 0.5:   # half the runs use the line coder
+        for k in ("lc_nrzi", "lc_diff", "lc_bitclk", "lc_resync", "lc_stuff_n", "lc_stuff_any"):
+            cfg[k] = 0
+    cfg["lc_bit_m1"] = rng.choice([0, 3, 10, 32, cfg["lc_bit_m1"]])
+    cfg["lc_sample"] = rng.randrange(cfg["lc_bit_m1"] + 1) if rng.random() < 0.9 else cfg["lc_sample"]
     return cfg
 
 
-REGS = ["pc", "x", "y", "isr", "osr", "isr_cnt", "osr_cnt", "dly", "to_flag", "pins_out", "pins_oe", "crc"]
+REGS = ["pc", "x", "y", "isr", "osr", "isr_cnt", "osr_cnt", "dly", "to_flag", "pins_out", "pins_oe", "crc",
+        "crc_hold", "lvl", "last", "run", "ph"]
 
 
 def rtl_state(eng):
@@ -65,6 +71,7 @@ async def test_random_vs_model(dut):
             data += [w >> 8, w & 0xFF]
         await host.xfer([0x01, 0] + data)
         await host.xfer([0x02, 0] + config_bytes(cfg))
+        await host.xfer([0x02, 40] + lc_bytes(cfg))
 
         chip = Chip()
         chip.imem[:] = words

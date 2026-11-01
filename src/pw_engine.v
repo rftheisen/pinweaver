@@ -35,6 +35,15 @@ module pw_engine (
     input  wire [15:0] crc_init,
     input  wire        crc_on_out,   // every OUT bit feeds the CRC
     input  wire        crc_on_in,    // every IN bit feeds the CRC
+    // line coder (OUT pins / IN pins with 1 bit); see docs/isa.md
+    input  wire        lc_nrzi,      // NRZI: a 0 bit toggles the line
+    input  wire        lc_diff,      // drive / read a differential pair (pin, pin + 1)
+    input  wire        lc_bitclk,    // coded IN / OUT wait for the bit clock
+    input  wire        lc_resync,    // edges on the IN pin re-align the bit clock
+    input  wire [2:0]  lc_stuff_n,   // bit stuffing after this many bits (0 = off)
+    input  wire        lc_stuff_any, // 0: count 1s only (USB), 1: count equal bits (CAN)
+    input  wire [7:0]  lc_bit_m1,    // bit clock period - 1, in ticks
+    input  wire [7:0]  lc_sample,    // bit clock phase that fires the coded IN / OUT
     // instruction memory
     output wire [5:0]  pc_o,
     input  wire [15:0] instr,
@@ -65,6 +74,11 @@ module pw_engine (
   reg        to_flag;
   reg [7:0]  prev_pins;
   reg [15:0] crc;
+  reg        crc_hold;   // stop feeding the CRC (until crc init)
+  reg        lvl;        // line coder: last line level (1 = idle / J)
+  reg        last;       // line coder: last data bit
+  reg [2:0]  run;        // line coder: equal bits in a row
+  reg [7:0]  ph;         // bit clock phase
 
   assign pc_o = pc;
 
@@ -104,6 +118,21 @@ module pw_engine (
   wire [3:0] push_t = (push_thresh == 4'd0 || push_thresh > 4'd8) ? 4'd8 : push_thresh;
 
   wire [7:0] status = {5'b0, to_flag, rx_full, tx_empty};
+
+  // line coder
+  wire line_mode = lc_nrzi || lc_diff || lc_bitclk || (lc_stuff_n != 3'd0);
+  wire strobe    = (ph == lc_sample);
+  wire stuff_hit = (lc_stuff_n != 3'd0) && (run == lc_stuff_n);
+  wire stuff_bit = lc_stuff_any ? ~last : 1'b0;
+  wire se0       = lc_diff && !pins_rot[0] && !pins_rot[1];
+  wire rx_bit    = lc_nrzi ? (pins_rot[0] == lvl) : pins_rot[0];
+
+  function [2:0] next_run(input [2:0] r, input l, input b, input any);
+    begin
+      if (any ? (b == l) : b) next_run = (r == 3'd7) ? 3'd7 : r + 3'd1;
+      else                    next_run = any ? 3'd1 : 3'd0;
+    end
+  endfunction
 
   // write `count` bits of `data` into `cur`, starting at pin `base` (wraps)
   function [7:0] map_pins(input [7:0] cur, input [7:0] data, input [2:0] base, input [3:0] count);
@@ -145,6 +174,9 @@ module pw_engine (
   reg       n_to;
   reg [15:0] n_crc;
   reg        f_en, f_lsb;   // CRC feed this tick
+  reg        n_hold, n_lvl, n_last, emit, e_bit, e_lvl, line_io;
+  reg [2:0]  n_run;
+  reg [7:0]  n_ph;
   reg [7:0]  f_bits;
   reg       done, jump, cond, need;
   reg [5:0] jt;
@@ -156,11 +188,17 @@ module pw_engine (
     n_out = pins_out; n_oe = pins_oe;
     n_isr_cnt = isr_cnt; n_osr_cnt = osr_cnt; n_dly = dly; n_to = to_flag; n_crc = crc;
     f_en = 1'b0; f_lsb = 1'b1; f_bits = 8'd0;
+    n_hold = crc_hold; n_lvl = lvl; n_last = last; n_run = run; n_ph = ph;
+    emit = 1'b0; e_bit = 1'b0; e_lvl = 1'b0; line_io = 1'b0;
     done = 1'b1; jump = 1'b0; cond = 1'b0; need = 1'b0; jt = 6'd0;
     src_v = 8'd0; t8 = 8'd0; o_src = 8'd0; o_new = 8'd0; c5 = 5'd0;
     tx_pop = 1'b0; rx_push = 1'b0; rx_data = isr; flag_set = 4'd0; flag_clr = 4'd0;
 
     if (tick && dly != 4'd0) n_dly = dly - 4'd1;
+    if (tick) begin
+      if (lc_resync && (pins_rot[0] ^ prev_rot[0])) n_ph = 8'd1;
+      else n_ph = (ph == lc_bit_m1) ? 8'd0 : ph + 8'd1;
+    end
 
     if (exec) begin
       case (op)
@@ -205,6 +243,23 @@ module pw_engine (
             3'd4: src_v = osr;
             default: src_v = 8'd0;
           endcase
+          line_io = line_mode && arg[8:6] == 3'd0 && nbits == 4'd1;
+          if (line_io) begin
+            n_lvl  = pins_rot[0];
+            n_last = rx_bit;
+            n_run  = next_run(run, last, rx_bit, lc_stuff_any);
+            src_v  = {7'd0, rx_bit};
+          end
+          if (line_io && lc_bitclk && !strobe) begin
+            done = 1'b0;                      // wait for the bit clock
+            n_lvl = lvl; n_last = last; n_run = run;
+          end else if (line_io && se0) begin
+            n_to = 1'b1;                      // end of packet: no bit
+            n_lvl = lvl; n_last = last; n_run = run;
+          end else if (line_io && stuff_hit) begin
+            jump = 1'b1; jt = pc;             // a stuff bit: drop it, read again
+          end else begin
+          if (line_io) n_to = 1'b0;
           if (in_shr) t8 = (isr >> nbits) | (src_v << (4'd8 - nbits));
           else        t8 = (isr << nbits) | (src_v & nmask);
           c5 = {1'b0, isr_cnt} + {1'b0, nbits};
@@ -215,12 +270,20 @@ module pw_engine (
           end else begin
             n_isr = t8; n_isr_cnt = c5[3:0];
           end
-          if (done && crc_on_in) begin f_en = 1'b1; f_bits = src_v; f_lsb = in_shr; end
+          if (done && crc_on_in && !crc_hold) begin f_en = 1'b1; f_bits = src_v; f_lsb = in_shr; end
+          if (!done) begin n_lvl = lvl; n_last = last; n_run = run; n_to = to_flag; end  // RX FIFO full: retry
+          end
         end
 
         3'd3: begin  // OUT
           need = autopull && (osr_cnt >= pull_t);
-          if (need && tx_empty) begin
+          line_io = line_mode && arg[8:6] == 3'd0;
+          if (line_io && lc_bitclk && !strobe) begin
+            done = 1'b0;                      // wait for the bit clock
+          end else if (line_io && stuff_hit) begin
+            emit = 1'b1; e_bit = stuff_bit;   // send a stuff bit, then this OUT again
+            jump = 1'b1; jt = pc;
+          end else if (need && tx_empty) begin
             done = 1'b0;
           end else begin
             if (need) tx_pop = 1'b1;
@@ -230,9 +293,10 @@ module pw_engine (
             if (out_shr) begin t8 = o_src & nmask;           o_new = o_src >> nbits; end
             else         begin t8 = o_src >> (4'd8 - nbits); o_new = o_src << nbits; end
             n_osr = o_new; n_osr_cnt = c5[3:0];
-            if (crc_on_out) begin f_en = 1'b1; f_bits = t8; f_lsb = out_shr; end
+            if (crc_on_out && !crc_hold) begin f_en = 1'b1; f_bits = t8; f_lsb = out_shr; end
             case (arg[8:6])
-              3'd0: n_out = map_pins(pins_out, t8, out_base, out_count);
+              3'd0: if (line_io && nbits == 4'd1) begin emit = 1'b1; e_bit = t8[0]; end
+                    else n_out = map_pins(pins_out, t8, out_base, out_count);
               3'd1: n_x = t8;
               3'd2: n_y = t8;
               3'd4: n_oe = map_pins(pins_oe, t8, out_base, out_count);
@@ -302,16 +366,27 @@ module pw_engine (
 
         default: begin  // CRC
           case (arg[8:6])
-            3'd0: n_crc = crc_init;
+            3'd0: begin n_crc = crc_init; n_hold = 1'b0; end
             3'd1: n_x = crc[7:0];
             3'd2: n_y = crc[15:8];
             3'd3: begin n_osr = crc[7:0];  n_osr_cnt = 4'd0; end
             3'd4: begin n_osr = crc[15:8]; n_osr_cnt = 4'd0; end
             3'd5: begin f_en = 1'b1; f_bits = x; end
-            default: ;
+            3'd6: begin n_lvl = 1'b1; n_last = 1'b0; n_run = 3'd0; n_ph = 8'd0; end  // line reset
+            default: n_hold = 1'b1;                                                  // crc hold
           endcase
         end
       endcase
+
+      // line coder output (a coded OUT bit or a stuff bit)
+      if (emit) begin
+        e_lvl  = lc_nrzi ? (e_bit ? lvl : ~lvl) : e_bit;
+        n_lvl  = e_lvl;
+        n_last = e_bit;
+        n_run  = next_run(run, last, e_bit, lc_stuff_any);
+        if (lc_diff) n_out = map_pins(pins_out, {6'd0, ~e_lvl, e_lvl}, out_base, 4'd2);
+        else         n_out = map_pins(pins_out, {7'd0, e_lvl}, out_base, 4'd1);
+      end
 
       // one shared CRC unit
       if (f_en) n_crc = crc_feed(crc, f_lsb ? f_bits : bitrev(f_bits << (4'd8 - nbits)), nbits, crc_poly);
@@ -336,12 +411,12 @@ module pw_engine (
       pc <= 6'd0; x <= 8'd0; y <= 8'd0; isr <= 8'd0; osr <= 8'd0;
       isr_cnt <= 4'd0; osr_cnt <= 4'd8; dly <= 4'd0; div <= 16'd0;
       to_flag <= 1'b0; prev_pins <= 8'd0; pins_out <= 8'd0; pins_oe <= 8'd0;
-      crc <= 16'd0;
+      crc <= 16'd0; crc_hold <= 1'b0; lvl <= 1'b1; last <= 1'b0; run <= 3'd0; ph <= 8'd0;
     end else if (restart) begin
       pc <= start_pc; x <= 8'd0; y <= 8'd0; isr <= 8'd0; osr <= 8'd0;
       isr_cnt <= 4'd0; osr_cnt <= 4'd8; dly <= 4'd0; div <= 16'd0;
       to_flag <= 1'b0; prev_pins <= pins_in;
-      crc <= crc_init;
+      crc <= crc_init; crc_hold <= 1'b0; lvl <= 1'b1; last <= 1'b0; run <= 3'd0; ph <= 8'd0;
     end else begin
       if (enable) div <= (div == 16'd0) ? clkdiv : div - 16'd1;
       if (tick) begin
@@ -349,6 +424,7 @@ module pw_engine (
         pc <= n_pc; x <= n_x; y <= n_y; isr <= n_isr; osr <= n_osr;
         isr_cnt <= n_isr_cnt; osr_cnt <= n_osr_cnt; dly <= n_dly; to_flag <= n_to;
         pins_out <= n_out; pins_oe <= n_oe; crc <= n_crc;
+        crc_hold <= n_hold; lvl <= n_lvl; last <= n_last; run <= n_run; ph <= n_ph;
       end
     end
   end

@@ -22,6 +22,9 @@ FIELDS = {
     "wrap_bottom": (8, 0, 6), "wrap_top": (9, 0, 6), "start_pc": (10, 0, 6),
     "crc_poly": (11, 0, 16), "crc_init": (13, 0, 16),
     "crc_on_out": (15, 4, 1), "crc_on_in": (15, 5, 1),
+    # line coder: registers 40 + 4 * engine (LC_REG + offset below)
+    "lc_nrzi": (100, 0, 1), "lc_diff": (100, 1, 1), "lc_bitclk": (100, 2, 1), "lc_resync": (100, 3, 1),
+    "lc_stuff_n": (100, 4, 3), "lc_stuff_any": (100, 7, 1), "lc_bit_m1": (101, 0, 8), "lc_sample": (102, 0, 8),
 }
 
 
@@ -31,14 +34,28 @@ def load_program(name, origin=0):
 
 
 def config_bytes(cfg):
+    """The 16 engine registers (line coder fields are left out; see lc_bytes)."""
     regs = [0] * 16
     for key, val in cfg.items():
         reg, off, width = FIELDS[key]
+        if reg >= 100:
+            continue
         assert 0 <= val < (1 << width), f"{key}={val} does not fit"
         if width == 16:
             regs[reg], regs[reg + 1] = val & 0xFF, val >> 8
         else:
             regs[reg] |= val << off
+    return regs
+
+
+def lc_bytes(cfg):
+    """The 4 line coder registers of an engine."""
+    regs = [0] * 4
+    for key, val in cfg.items():
+        reg, off, width = FIELDS[key]
+        if reg >= 100:
+            assert 0 <= val < (1 << width), f"{key}={val} does not fit"
+            regs[reg - 100] |= val << off
     return regs
 
 
@@ -84,6 +101,7 @@ class Host:
         cfg = dict(prog.config())
         cfg.update(pins)
         await self.xfer([0x02, engine * 16] + config_bytes(cfg))
+        await self.xfer([0x02, 40 + 4 * engine] + lc_bytes(cfg))
 
     async def ctrl(self, enable, restart=0, la_arm=0, la_stop=0):
         await self.xfer([0x03, enable | (restart << 4) | (la_arm << 6) | (la_stop << 7)])
@@ -123,7 +141,7 @@ class Host:
 
     async def push(self, engine, data):
         """Push bytes, waiting whenever the 4-byte TX FIFO is full."""
-        full_bit = 1 << (4 + 2 * engine)
+        full_bit = 1 << (4 + 2 * engine)  # TX FIFO is 8 deep
         for b in data:
             while (await self.status()) & full_bit:
                 pass

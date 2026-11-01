@@ -16,7 +16,7 @@ range, so two programs can sit side by side.
 | `ISR` | 8 | input shift register (pushed to the host's RX FIFO) |
 | `TO` | 1 | set when the last WAIT timed out |
 
-FIFOs: 4 bytes each way per engine. Four **flags** are shared by both
+FIFOs: 8 bytes each way per engine. Four **flags** are shared by both
 engines and the host, for handshakes and triggers.
 
 ## Pins
@@ -84,7 +84,9 @@ feeds 8 bits in one tick). An n-bit CRC lives in the top n bits: write
 `poly << (16 - n)` and `init << (16 - n)`, and read the result from the top.
 Sub-ops: 0 `crc init` (CRC ← init), 1 `crc x` (X ← CRC[7:0]), 2 `crc y`
 (Y ← CRC[15:8]), 3 `crc osr_lo`, 4 `crc osr_hi` (OSR ← a CRC byte, ready to
-send), 5 `crc feed n` (feed the n low bits of X, LSB first). Tested against the
+send), 5 `crc feed n` (feed the n low bits of X, LSB first), 6 `line reset`
+(see the line coder), 7 `crc hold` (stop feeding the CRC until the next
+`crc init`, so it can be sent without changing). Tested against the
 published check values of CRC-16/XMODEM, CRC-15/CAN, CRC-16/ARC, CRC-5/USB and
 CRC-16/USB.
 
@@ -112,6 +114,14 @@ copies X into OSR, and a non-blocking PUSH on a full FIFO is dropped.
 | 11, 12 | CRC polynomial low / high |
 | 13, 14 | CRC init value low / high |
 | 15 | `[4]` crc_on_out, `[5]` crc_on_in |
+
+Line coder registers (engine 0 at 40–43, engine 1 at 44–47):
+
+| Addr | Bits |
+|---|---|
+| 40 | `[0]` nrzi, `[1]` diff, `[2]` bitclk, `[3]` resync, `[6:4]` stuff_n (0 = off), `[7]` stuff_any |
+| 41 | bit clock period − 1, in ticks |
+| 42 | bit clock sample point (phase that fires a coded IN / OUT) |
 
 ## Host SPI interface
 
@@ -144,6 +154,8 @@ Other outputs: `uo[1]` / `uo[2]` = engine 0 / 1 has RX data (interrupt lines),
 | `timeout_demo.pw` | 10 | WAIT with a timeout |
 | `crc_demo.pw` | 12 | Hardware CRC over host bytes, returns the CRC |
 | `la_trigger.pw` | 3 | Fires the logic analyzer (flag 3) when GPIO 7 goes high |
+| `usb_tx.pw` | 38 | Low-speed USB packet sender: SYNC, PID, payload, hardware CRC16, EOP |
+| `usb_rx.pw` | 8 | Low-speed USB packet receiver: NRZI, destuffing, DPLL, end of packet |
 
 Assemble with `python tools/pw_asm.py programs/<name>.pw [origin]`. Run the tests
 from Windows with `wsl -d Ubuntu -- bash run.sh test` (needs OSS CAD Suite in
@@ -179,3 +191,34 @@ the trigger: on an I2C START, a framing error or a bad CRC
 
 The analyzer writes win over host writes to the same memory. Don't let it
 overwrite a running program.
+
+## Line coder and bit clock
+
+For serial buses that need more than plain bits (USB, CAN, ...), each engine
+has a line coder between OUT / IN and the pins. It is on when any of nrzi,
+diff, bitclk or stuff_n is set, and it changes `OUT pins, 1` and `IN pins, 1`
+(other widths and destinations are untouched; a wider `OUT pins` is written raw
+but still waits for the bit clock and any pending stuff bit).
+
+* **NRZI** (`nrzi`): sending, a 0 bit toggles the line and a 1 keeps it;
+  receiving, a bit is 1 when the line did not change.
+* **Differential pair** (`diff`): drives pin and pin + 1 as a pair (level,
+  inverted level). Receiving, both low (SE0, e.g. USB end of packet) makes the
+  IN set `TO` and read no bit, so `jmp timeout` can catch the end of a packet.
+* **Bit stuffing** (`stuff_n`, `stuff_any`): after `stuff_n` 1s in a row (USB:
+  6), or `stuff_n` equal bits when `stuff_any` is set (CAN: 5), the sender
+  inserts the opposite bit and the receiver drops it. A stuffed OUT sends the
+  stuff bit and then runs again; a dropped bit makes the IN run again. Stuff
+  bits never reach the CRC.
+* **Bit clock** (`bitclk`): a phase counter that wraps every `period` ticks.
+  Coded INs and OUTs wait until the phase equals `sample`, so a program's
+  timing comes from the clock, not from counted delays. With **`resync`**, an
+  edge on the IN pin resets the phase, a small digital PLL that keeps a
+  receiver locked to a sender whose clock is a little off (USB needs this:
+  33 ticks vs 33.33 clocks per bit at 50 MHz).
+* `line reset` sets the line level to idle (1 = J), clears the run counter and
+  restarts the bit clock.
+
+The USB tests check the transmitted packets with an independent decoder
+(timing, NRZI, stuffing, SYNC, CRC, EOP) and receive packets sent 1.2% fast
+and slow. With resync off the receiver fails even at nominal speed.
