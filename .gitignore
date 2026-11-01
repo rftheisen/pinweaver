@@ -15,3 +15,5 @@ test/sim_build
 test/results.xml
 synth_stats.txt
 __pycache__/
+synth_ihp.log
+synth_ihp_stats.txt

@@ -73,7 +73,7 @@ module tt_um_pinweaver (
 
   // ------------------------------------------------------------ config registers
   reg [7:0] cfg[0:31];
-  integer k;
+  integer k, k2, k3;   // one loop variable per always block
   always @(posedge clk) begin
     if (!rst_n) begin
       for (k = 0; k < 32; k = k + 1) cfg[k] <= ((k % 16) == 9) ? 8'd127 : 8'd0;
@@ -86,7 +86,7 @@ module tt_um_pinweaver (
   reg [7:0] lccfg[0:7];
   always @(posedge clk) begin
     if (!rst_n) begin
-      for (k = 0; k < 8; k = k + 1) lccfg[k] <= 8'd0;
+      for (k2 = 0; k2 < 8; k2 = k2 + 1) lccfg[k2] <= 8'd0;
     end else if (cfg_we && cfg_addr[7:3] == 5'd5) begin
       lccfg[cfg_addr[2:0]] <= cfg_data;
     end
@@ -96,7 +96,7 @@ module tt_um_pinweaver (
   reg [7:0] lacfg[0:7];
   always @(posedge clk) begin
     if (!rst_n) begin
-      for (k = 0; k < 8; k = k + 1) lacfg[k] <= (k == 1) ? 8'd127 : 8'd0;
+      for (k3 = 0; k3 < 8; k3 = k3 + 1) lacfg[k3] <= (k3 == 1) ? 8'd127 : 8'd0;
     end else if (cfg_we && cfg_addr[7:3] == 5'd4) begin
       lacfg[cfg_addr[2:0]] <= cfg_data;
     end
