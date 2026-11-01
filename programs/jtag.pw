@@ -1,0 +1,25 @@
+; JTAG host as cycle vectors: each TCK cycle takes a TMS and a TDI bit from
+; the host and gives back the TDO bit, so the host can run any TAP sequence
+; (reset, IR / DR shifts, whole scan chains) with this one small program.
+;
+; Pins: SET group = TCK, TMS, TDI (3 pins from TCK); side-set = TCK (opt);
+;       OUT group = TMS, TDI (2 pins); in_base = TDO.
+; Config: out_shr 1, in_shr 1 (LSB first), autopull (8), autopush (8).
+; Host: push (cycles - 1), then 4 cycles per byte: bit 0 = TMS, bit 1 = TDI
+; of the first cycle, bits 2-3 the next, ... The RX FIFO gets the TDO bits,
+; 8 per byte, LSB first, then one more byte with the leftover bits (in its
+; top bits; empty when the count is a multiple of 8).
+.program jtag
+.side_set 1 opt
+    set pins, 0             ; TCK low
+    set pindirs, 7          ; drive TCK, TMS, TDI
+.wrap_target
+    pull
+    out x, 8                ; cycles - 1
+cycle:
+    out pins, 2     side 0 [1]   ; TMS, TDI change while TCK is low
+    in pins, 1      side 1 [1]   ; TCK rises: the TAP samples TMS / TDI, we sample TDO
+    jmp x-- cycle
+    nop             side 0
+    push                    ; the leftover TDO bits
+.wrap

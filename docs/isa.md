@@ -165,6 +165,7 @@ Other outputs: `uo[1]` / `uo[2]` = engine 0 / 1 has RX data (interrupt lines),
 | `can_tx.pw` | 41 | CAN 2.0A sender: stuffing, CRC-15, bus-idle wait, arbitration with back-off, ACK check |
 | `swd.pw` | 56 | ARM SWD host: line reset, DP / AP reads and writes, turnaround, 32-bit parity via the CRC unit, WAIT / FAULT |
 | `ps2_rx.pw` | 13 | PS/2 keyboard / mouse receiver: follows the device clock with edge waits, odd parity via the CRC unit |
+| `jtag.pw` | 9 | JTAG host as cycle vectors (TMS + TDI in, TDO out per TCK): any TAP sequence, scan chains |
 
 Assemble with `python tools/pw_asm.py programs/<name>.pw [origin]`. Run the tests
 from Windows with `wsl -d Ubuntu -- bash run.sh test` (needs OSS CAD Suite in
