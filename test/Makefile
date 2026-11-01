@@ -6,7 +6,7 @@ SIM ?= icarus
 FST ?= -fst # Use more efficient FST format
 TOPLEVEL_LANG ?= verilog
 SRC_DIR = $(PWD)/../src
-PROJECT_SOURCES = project.v pw_engine.v pw_fifo.v pw_spi_slave.v pw_host.v pw_la.v
+PROJECT_SOURCES = project.v pw_engine.v pw_fifo.v pw_spi_slave.v pw_host.v pw_la.v pw_latch_mem.v
 
 ifneq ($(GATES),yes)
 

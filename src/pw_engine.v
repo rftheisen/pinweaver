@@ -107,10 +107,11 @@ module pw_engine (
   end
 
   // pins seen from in_base (rotate right)
-  wire [15:0] rot  = {pins_in, pins_in} >> in_base;
-  wire [15:0] prot = {prev_pins, prev_pins} >> in_base;
-  wire [7:0]  pins_rot = rot[7:0];
-  wire [7:0]  prev_rot = prot[7:0];
+  function [7:0] rotr(input [7:0] v, input [2:0] n);
+    rotr = (v >> n) | (v << (4'd8 - {1'b0, n}));
+  endfunction
+  wire [7:0] pins_rot = rotr(pins_in, in_base);
+  wire [7:0] prev_rot = rotr(prev_pins, in_base);
 
   wire [3:0] nbits  = (arg[3:0] == 4'd0 || arg[3:0] > 4'd8) ? 4'd8 : arg[3:0];
   wire [7:0] nmask  = 8'hFF >> (4'd8 - nbits);
@@ -141,7 +142,7 @@ module pw_engine (
     begin
       map_pins = cur;
       for (i = 0; i < 8; i = i + 1) begin
-        idx = base + i;
+        idx = base + i[2:0];
         if (i < count) map_pins[idx] = data[i];
       end
     end

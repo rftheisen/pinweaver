@@ -3,7 +3,8 @@
 PinWeaver has **2 pin engines**. Each one is a tiny CPU that runs one 16-bit
 instruction per *tick*. A tick happens every `CLKDIV + 1` system clocks, so a
 50 MHz clock with `CLKDIV = 0` gives 50 M ticks/s. The engines share one
-128-word instruction memory made of two 64-word **pages** (0–63, 64–127).
+128-word instruction memory (built from latches) made of two 64-word
+**pages** (0–63, 64–127).
 Each engine has its own start address and wrap range, so several programs
 can sit side by side. Jumps, `MOV PC` / `OUT PC` and the PC's own +1 stay
 inside the current page (the page is PC bit 6), so a program lives in one

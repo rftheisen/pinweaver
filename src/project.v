@@ -62,14 +62,16 @@ module tt_um_pinweaver (
 
   // ------------------------------------------------------------ instruction memory
   // (also the logic analyzer's sample buffer; the analyzer wins a write clash)
-  reg [15:0] imem[0:127];   // two 64-word pages
-  always @(posedge clk) begin
-    if (la_we) imem[la_waddr] <= la_wdata;
-    else if (imem_we) imem[imem_addr] <= imem_data;
-  end
-  wire [15:0] instr0 = imem[pc0];
-  wire [15:0] instr1 = imem[pc1];
-  assign imem_rd = imem[rd_addr];
+  // 128 words = two 64-word pages, built from latches
+  wire [15:0] instr0, instr1;
+  pw_latch_mem u_mem (
+      .clk(clk), .rst_n(rst_n),
+      .we(la_we | imem_we),
+      .waddr(la_we ? la_waddr : imem_addr),
+      .wdata(la_we ? la_wdata : imem_data),
+      .raddr0(pc0), .raddr1(pc1), .raddr2(rd_addr),
+      .rdata0(instr0), .rdata1(instr1), .rdata2(imem_rd)
+  );
 
   // ------------------------------------------------------------ config registers
   reg [7:0] cfg[0:31];

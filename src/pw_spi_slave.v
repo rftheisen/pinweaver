@@ -20,13 +20,14 @@ module pw_spi_slave (
     input  wire [7:0] resp,        // next byte to send, taken while byte_valid is high
     input  wire [7:0] status       // sent as the first byte of every transaction
 );
-  reg [2:0] sck_s, mosi_s, csn_s;
+  reg [2:0] sck_s, csn_s;
+  reg [1:0] mosi_s;
   always @(posedge clk) begin
     if (!rst_n) begin
-      sck_s <= 3'b000; mosi_s <= 3'b000; csn_s <= 3'b111;
+      sck_s <= 3'b000; mosi_s <= 2'b00; csn_s <= 3'b111;
     end else begin
       sck_s  <= {sck_s[1:0], sck_i};
-      mosi_s <= {mosi_s[1:0], mosi_i};
+      mosi_s <= {mosi_s[0], mosi_i};
       csn_s  <= {csn_s[1:0], csn_i};
     end
   end

@@ -7,15 +7,18 @@ fill and routing space.
 
 | Date | Commit | Cells | Cell area | Share of a 6x4 area (~0.72 mm²) |
 |---|---|---|---|---|
-| 2026-11-01 | 128-word memory | 21,313 | 0.337 mm² | ~47% |
+| 2026-11-01 | 128-word memory (flip-flops) | 21,313 | 0.337 mm² | ~47% |
+| 2026-11-01 | latch memory | 16,653 | 0.249 mm² | ~34% |
 
-Where it goes: flip-flops are 46% (3,148 of them; 2,048 are the
-instruction memory), and most of the rest is the memory's three 128-word
-read multiplexers.
+Where it goes: the instruction memory is now 2,048 latches
+(`sg13cmos5l_dlhq_1`, 0.063 mm²) instead of flip-flops plus write muxes;
+the remaining ~1,100 flip-flops are config, FIFOs and engine state. The
+memory's three 128-word read multiplexers are the next biggest block.
 
-If place-and-route struggles, the main lever is the memory: a latch cell is
-30.8 µm² against 49 µm² for a flip-flop plus 18 µm² for its write mux, so a
-latch-based memory would save about 0.07 mm² (a fifth of the chip).
+The latch memory (`src/pw_latch_mem.v`) registers each write, then opens the
+chosen word during the low half of the clock, with inputs held steady by
+flip-flops. Its timing (latch enable vs. clock) is something to check in the
+real flow and the gate-level simulation.
 
 Timing can't be judged from synthesis alone here: unbuffered nets with
 1,000+ loads (memory write enable, reset) dominate ABC's delay estimate. The

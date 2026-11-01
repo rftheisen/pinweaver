@@ -7,7 +7,7 @@ from cocotb_tools.runner import get_runner
 
 HERE = Path(__file__).resolve().parent
 SRC = HERE.parent / "src"
-SOURCES = ["project.v", "pw_engine.v", "pw_fifo.v", "pw_spi_slave.v", "pw_host.v", "pw_la.v"]
+SOURCES = ["project.v", "pw_engine.v", "pw_fifo.v", "pw_spi_slave.v", "pw_host.v", "pw_la.v", "pw_latch_mem.v"]
 
 
 def main(modules):
