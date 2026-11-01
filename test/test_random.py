@@ -30,7 +30,7 @@ def random_config(rng):
     cfg = {k: rng.getrandbits(w) for k, (_, _, w) in FIELDS.items()}
     cfg["clkdiv"] = rng.choice([0, 0, 0, 1, 2])
     if rng.random() < 0.5:   # half the runs use the line coder
-        for k in ("lc_nrzi", "lc_diff", "lc_bitclk", "lc_resync", "lc_stuff_n", "lc_stuff_any"):
+        for k in ("lc_nrzi", "lc_diff", "lc_bitclk", "lc_resync", "lc_stuff_n", "lc_stuff_any", "lc_arb"):
             cfg[k] = 0
     cfg["lc_bit_m1"] = rng.choice([0, 3, 10, 32, cfg["lc_bit_m1"]])
     cfg["lc_sample"] = rng.randrange(cfg["lc_bit_m1"] + 1) if rng.random() < 0.9 else cfg["lc_sample"]

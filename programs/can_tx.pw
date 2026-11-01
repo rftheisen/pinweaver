@@ -1,0 +1,71 @@
+; CAN 2.0A transmitter with arbitration, 500 kbit/s at 50 MHz.
+;
+; The line coder does CAN bit stuffing (5 equal bits) and times every bit;
+; the CRC unit makes the CRC-15. With lc_arb, the line coder compares what
+; we sent with the bus at each sample point: if we sent recessive (1) and
+; the bus was dominant (0), it sets TO and keeps our output recessive from
+; then on, so losing arbitration never disturbs the winner. The same check
+; sees the receiver's ACK.
+;
+; Pins: OUT group = SET group = TX (1 pin), in_base = RX.
+; Config: clkdiv 4 (10 MHz ticks), out_shr 0 (MSB first), autopull (8);
+;         CRC poly 0x8B32 (0x4599 << 1), init 0, crc_on_out;
+;         line coder bitclk, stuff 5 any, arb, bit = 20 ticks, sample point 14.
+; Host: push (frame bits - 1), then SOF .. data packed MSB first. While flag 2
+;       is set, frames wait (clear it to start several senders at once).
+; RX FIFO gets one byte per frame: bit 2 set = ACKed; 0xFF = lost arbitration
+; (push the frame again).
+.program can_tx
+    set pins, 1
+    set pindirs, 1          ; TX recessive
+.wrap_target
+start:
+    pull
+    out isr, 8              ; frame bits - 1 (kept in ISR for now)
+    wait 0 flag 2           ; the host can hold all senders with flag 2 and
+                            ; release them together
+idle:                       ; wait for 11 recessive bits on the bus
+    set y, 27
+    mov y, ::y              ; 216 ticks = 10.8 bits
+    wait 0 pin 0 timeout    ; any dominant bit starts the count again
+    jmp !y go               ; Y ran out: quiet bus (TO can't be used here: the
+                            ; read-back check sets it while others talk)
+    wait 1 pin 0
+    jmp idle
+go:
+    line reset              ; bit clock and stuffing start here
+    mov to, null
+    crc init
+    mov x, isr
+bits:
+    out pins, 1             ; SOF, ID, control, data (autopull)
+    jmp x-- bits
+    crc hold
+    crc osr_hi              ; CRC-15 sits in the top 15 bits
+    set x, 7
+crc_hi:
+    out pins, 1
+    jmp x-- crc_hi
+    crc osr_lo
+    set x, 6
+crc_lo:
+    out pins, 1
+    jmp x-- crc_lo
+    jmp timeout lost        ; we lost arbitration (or saw a bit error)
+    mov to, null
+    mov osr, ~null          ; the rest is recessive, written raw (no stuffing)
+    out pins, 2             ; CRC delimiter
+    out pins, 2             ; ACK slot: a receiver pulls it dominant -> TO
+    out pins, 2             ; ACK delimiter
+    mov isr, status         ; bit 2 = TO = ACKed
+    push
+    set x, 9
+eof:                        ; end of frame (7 bits) + interframe space (3)
+    mov osr, ~null
+    out pins, 2
+    jmp x-- eof
+.wrap
+lost:
+    mov isr, ~null
+    push                    ; 0xFF: the host should send this frame again
+    jmp start

@@ -65,6 +65,7 @@ class Config:
     lc_stuff_any: int = 0
     lc_bit_m1: int = 0
     lc_sample: int = 0
+    lc_arb: int = 0
 
 
 def _next_run(run, last, bit, any_):
@@ -125,10 +126,13 @@ class Engine:
             new_ph = 1
         else:
             new_ph = 0 if self.ph == c.lc_bit_m1 else (self.ph + 1) & M8
+        arb_hit = c.lc_arb and self.ph == c.lc_sample and self.lvl and not (rot & 1)
         if self.dly:
             self.dly -= 1
             self.prev_pins = pins
             self.ph = new_ph
+            if arb_hit:
+                self.to = 1
             return fset, fclr
 
         w = self.imem[self.pc] & 0xFFFF
@@ -152,7 +156,8 @@ class Engine:
 
         # line coder
         line_mode = c.lc_nrzi or c.lc_diff or c.lc_bitclk or c.lc_stuff_n
-        strobe = self.ph == c.lc_sample
+        strobe_out = self.ph == 0
+        strobe_in = self.ph == c.lc_sample
         stuff_hit = c.lc_stuff_n != 0 and self.run == c.lc_stuff_n
         stuff_bit = (1 - self.last) if c.lc_stuff_any else 0
         se0 = c.lc_diff and not (rot & 1) and not ((rot >> 1) & 1)
@@ -215,7 +220,7 @@ class Engine:
             src = (arg >> 6) & 7
             v = {0: rot, 1: self.x, 2: self.y, 4: self.osr}.get(src, 0)
             line_io = line_mode and src == 0 and n == 1
-            if line_io and c.lc_bitclk and not strobe:
+            if line_io and c.lc_bitclk and not strobe_in:
                 done = False
             elif line_io and se0:
                 s["to"] = 1
@@ -251,7 +256,7 @@ class Engine:
         elif op == 3:  # OUT
             need = c.autopull and self.osr_cnt >= pull_t
             line_io = line_mode and ((arg >> 6) & 7) == 0
-            if line_io and c.lc_bitclk and not strobe:
+            if line_io and c.lc_bitclk and not strobe_out:
                 done = False
             elif line_io and stuff_hit:
                 emit = stuff_bit
@@ -273,6 +278,8 @@ class Engine:
                     emit = t & 1
                 elif dst == 0:
                     s["pins_out"] = _map_pins(self.pins_out, t, c.out_base, c.out_count)
+                    if line_io:
+                        s["lvl"] = t & 1
                 elif dst == 1:
                     s["x"] = t
                 elif dst == 2:
@@ -321,6 +328,8 @@ class Engine:
                 jump, jt = True, (self.pc & 0x40) | (t & 0x3F)
             elif dst == 6:
                 s["pins_oe"] = _map_pins(self.pins_oe, t, c.out_base, c.out_count)
+            elif dst == 7:
+                s["to"] = t & 1
 
         elif op == 6:  # SET
             dst, v = (arg >> 6) & 7, arg & 0x1F
@@ -358,7 +367,10 @@ class Engine:
                 s["crc_hold"] = 1
 
         if emit is not None:
-            e_lvl = (self.lvl if emit else 1 - self.lvl) if c.lc_nrzi else emit
+            if c.lc_arb and self.to:
+                e_lvl = 1
+            else:
+                e_lvl = (self.lvl if emit else 1 - self.lvl) if c.lc_nrzi else emit
             s["lvl"], s["last"] = e_lvl, emit
             s["run"] = _next_run(self.run, self.last, emit, c.lc_stuff_any)
             if c.lc_diff:
@@ -379,6 +391,8 @@ class Engine:
             else:
                 s["pc"] = (self.pc & 0x40) | ((self.pc + 1) & 0x3F)   # wraps inside the page
 
+        if arb_hit:
+            s["to"] = 1
         for k, v in s.items():
             setattr(self, k, v)
         self.prev_pins = pins

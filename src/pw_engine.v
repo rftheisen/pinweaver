@@ -43,7 +43,8 @@ module pw_engine (
     input  wire [2:0]  lc_stuff_n,   // bit stuffing after this many bits (0 = off)
     input  wire        lc_stuff_any, // 0: count 1s only (USB), 1: count equal bits (CAN)
     input  wire [7:0]  lc_bit_m1,    // bit clock period - 1, in ticks
-    input  wire [7:0]  lc_sample,    // bit clock phase that fires the coded IN / OUT
+    input  wire [7:0]  lc_sample,    // bit clock phase that fires a coded IN (OUTs fire at 0)
+    input  wire        lc_arb,       // CAN-style read-back: sent 1, saw 0 at the sample point -> TO
     // instruction memory
     output wire [6:0]  pc_o,
     input  wire [15:0] instr,
@@ -122,7 +123,8 @@ module pw_engine (
 
   // line coder
   wire line_mode = lc_nrzi || lc_diff || lc_bitclk || (lc_stuff_n != 3'd0);
-  wire strobe    = (ph == lc_sample);
+  wire strobe_out = (ph == 8'd0);        // coded OUTs start a bit
+  wire strobe_in  = (ph == lc_sample);   // coded INs sample it
   wire stuff_hit = (lc_stuff_n != 3'd0) && (run == lc_stuff_n);
   wire stuff_bit = lc_stuff_any ? ~last : 1'b0;
   wire se0       = lc_diff && !pins_rot[0] && !pins_rot[1];
@@ -251,7 +253,7 @@ module pw_engine (
             n_run  = next_run(run, last, rx_bit, lc_stuff_any);
             src_v  = {7'd0, rx_bit};
           end
-          if (line_io && lc_bitclk && !strobe) begin
+          if (line_io && lc_bitclk && !strobe_in) begin
             done = 1'b0;                      // wait for the bit clock
             n_lvl = lvl; n_last = last; n_run = run;
           end else if (line_io && se0) begin
@@ -279,7 +281,7 @@ module pw_engine (
         3'd3: begin  // OUT
           need = autopull && (osr_cnt >= pull_t);
           line_io = line_mode && arg[8:6] == 3'd0;
-          if (line_io && lc_bitclk && !strobe) begin
+          if (line_io && lc_bitclk && !strobe_out) begin
             done = 1'b0;                      // wait for the bit clock
           end else if (line_io && stuff_hit) begin
             emit = 1'b1; e_bit = stuff_bit;   // send a stuff bit, then this OUT again
@@ -297,7 +299,10 @@ module pw_engine (
             if (crc_on_out && !crc_hold) begin f_en = 1'b1; f_bits = t8; f_lsb = out_shr; end
             case (arg[8:6])
               3'd0: if (line_io && nbits == 4'd1) begin emit = 1'b1; e_bit = t8[0]; end
-                    else n_out = map_pins(pins_out, t8, out_base, out_count);
+                    else begin
+                      n_out = map_pins(pins_out, t8, out_base, out_count);
+                      if (line_io) n_lvl = t8[0];   // raw line-mode OUT: remember the level
+                    end
               3'd1: n_x = t8;
               3'd2: n_y = t8;
               3'd4: n_oe = map_pins(pins_oe, t8, out_base, out_count);
@@ -350,7 +355,7 @@ module pw_engine (
             3'd4: begin n_osr = t8; n_osr_cnt = 4'd0; end
             3'd5: begin jump = 1'b1; jt = {pc[6], t8[5:0]}; end
             3'd6: n_oe = map_pins(pins_oe, t8, out_base, out_count);
-            default: ;
+            default: n_to = t8[0];                 // mov to, src
           endcase
         end
 
@@ -381,7 +386,8 @@ module pw_engine (
 
       // line coder output (a coded OUT bit or a stuff bit)
       if (emit) begin
-        e_lvl  = lc_nrzi ? (e_bit ? lvl : ~lvl) : e_bit;
+        if (lc_arb && to_flag) e_lvl = 1'b1;  // lost arbitration: stay recessive
+        else e_lvl = lc_nrzi ? (e_bit ? lvl : ~lvl) : e_bit;
         n_lvl  = e_lvl;
         n_last = e_bit;
         n_run  = next_run(run, last, e_bit, lc_stuff_any);
@@ -404,6 +410,9 @@ module pw_engine (
         else                       n_pc = {pc[6], pc[5:0] + 6'd1};  // wraps inside the page
       end
     end
+
+    // CAN read-back: we sent recessive (1) but the bus is dominant (0)
+    if (tick && lc_arb && strobe_in && lvl && !pins_rot[0]) n_to = 1'b1;
   end
 
   // ---------------------------------------------------------------- registers

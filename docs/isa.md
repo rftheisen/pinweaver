@@ -75,7 +75,7 @@ With the timeout bit set, each tick that the condition is false decrements
 
 **IN sources**: 0 pins, 1 X, 2 Y, 3 null, 4 OSR.
 **OUT destinations**: 0 pins, 1 X, 2 Y, 3 null, 4 pindirs, 5 PC, 6 ISR.
-**MOV**: dst 0 pins, 1 X, 2 Y, 3 ISR, 4 OSR, 5 PC, 6 pindirs;
+**MOV**: dst 0 pins, 1 X, 2 Y, 3 ISR, 4 OSR, 5 PC, 6 pindirs, 7 `to` (the TO flag ← bit 0);
 op 0 none, 1 invert (`~`), 2 bit-reverse (`::`), 3 increment (`+1`);
 src 0 pins, 1 X, 2 Y, 3 ISR, 4 OSR, 5 status `{TO, rx_full, tx_empty}`, 6 flags, 7 null.
 **SET destinations**: 0 pins, 1 X, 2 Y, 3 pindirs, 4 flag (value bit 4 = set/clear,
@@ -125,7 +125,8 @@ Line coder registers (engine 0 at 40–43, engine 1 at 44–47):
 |---|---|
 | 40 | `[0]` nrzi, `[1]` diff, `[2]` bitclk, `[3]` resync, `[6:4]` stuff_n (0 = off), `[7]` stuff_any |
 | 41 | bit clock period − 1, in ticks |
-| 42 | bit clock sample point (phase that fires a coded IN / OUT) |
+| 42 | bit clock sample point (phase that fires a coded IN; coded OUTs fire at phase 0) |
+| 43 | `[0]` arb (CAN read-back check) |
 
 ## Host SPI interface
 
@@ -160,6 +161,7 @@ Other outputs: `uo[1]` / `uo[2]` = engine 0 / 1 has RX data (interrupt lines),
 | `la_trigger.pw` | 3 | Fires the logic analyzer (flag 3) when GPIO 7 goes high |
 | `usb_tx.pw` | 38 | Low-speed USB packet sender: SYNC, PID, payload, hardware CRC16, EOP |
 | `usb_rx.pw` | 8 | Low-speed USB packet receiver: NRZI, destuffing, DPLL, end of packet |
+| `can_tx.pw` | 41 | CAN 2.0A sender: stuffing, CRC-15, bus-idle wait, arbitration with back-off, ACK check |
 
 Assemble with `python tools/pw_asm.py programs/<name>.pw [origin]`. Run the tests
 from Windows with `wsl -d Ubuntu -- bash run.sh test` (needs OSS CAD Suite in
@@ -215,11 +217,19 @@ but still waits for the bit clock and any pending stuff bit).
   stuff bit and then runs again; a dropped bit makes the IN run again. Stuff
   bits never reach the CRC.
 * **Bit clock** (`bitclk`): a phase counter that wraps every `period` ticks.
-  Coded INs and OUTs wait until the phase equals `sample`, so a program's
+  Coded OUTs wait for phase 0 (the start of a bit) and coded INs for phase
+  `sample`, so a program's
   timing comes from the clock, not from counted delays. With **`resync`**, an
   edge on the IN pin resets the phase, a small digital PLL that keeps a
   receiver locked to a sender whose clock is a little off (USB needs this:
   33 ticks vs 33.33 clocks per bit at 50 MHz).
+* **Read-back / arbitration** (`arb`, for CAN): at each sample point, if the
+  last level we put on the pin was recessive (1) but the IN pin reads dominant
+  (0), TO is set, and from then on coded OUTs send recessive whatever the
+  data. So a node that loses arbitration goes quiet by itself within the bit
+  and never disturbs the winner. The same check sees a receiver's ACK
+  (we send the ACK slot recessive; TO set = ACKed). `mov to, null` clears it.
+  Raw line-mode OUTs (2+ bits) also update the remembered level.
 * `line reset` sets the line level to idle (1 = J), clears the run counter and
   restarts the bit clock.
 

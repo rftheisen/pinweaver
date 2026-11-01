@@ -12,7 +12,8 @@ Turns a text program into 16-bit instruction words. Syntax (see docs/isa.md):
     in   pins|x|y|null|osr, N
     out  pins|x|y|null|pindirs|pc|isr, N
     push [block|noblock]      pull [block|noblock]
-    mov  pins|x|y|isr|osr|pc|pindirs, [~|::|+]pins|x|y|isr|osr|status|flags|null
+    mov  pins|x|y|isr|osr|pc|pindirs|to, [~|::|+]pins|x|y|isr|osr|status|flags|null
+                                 (to = the TO flag, from bit 0)
     set  pins|x|y|pindirs, VALUE
     flag set|clear N
     nop
@@ -31,7 +32,7 @@ JMP_COND = {"": 0, "!x": 1, "x--": 2, "!y": 3, "y--": 4, "x!=y": 5, "pin": 6, "t
 WAIT_SRC = {"pin": 0, "gpio": 1, "flag": 2, "edge": 3}
 IN_SRC = {"pins": 0, "x": 1, "y": 2, "null": 3, "osr": 4}
 OUT_DST = {"pins": 0, "x": 1, "y": 2, "null": 3, "pindirs": 4, "pc": 5, "isr": 6}
-MOV_DST = {"pins": 0, "x": 1, "y": 2, "isr": 3, "osr": 4, "pc": 5, "pindirs": 6}
+MOV_DST = {"pins": 0, "x": 1, "y": 2, "isr": 3, "osr": 4, "pc": 5, "pindirs": 6, "to": 7}
 MOV_SRC = {"pins": 0, "x": 1, "y": 2, "isr": 3, "osr": 4, "status": 5, "flags": 6, "null": 7}
 MOV_OP = {"": 0, "~": 1, "!": 1, "::": 2, "+": 3}
 SET_DST = {"pins": 0, "x": 1, "y": 2, "pindirs": 3}

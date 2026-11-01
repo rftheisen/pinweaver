@@ -24,7 +24,7 @@ FIELDS = {
     "crc_on_out": (15, 4, 1), "crc_on_in": (15, 5, 1),
     # line coder: registers 40 + 4 * engine (LC_REG + offset below)
     "lc_nrzi": (100, 0, 1), "lc_diff": (100, 1, 1), "lc_bitclk": (100, 2, 1), "lc_resync": (100, 3, 1),
-    "lc_stuff_n": (100, 4, 3), "lc_stuff_any": (100, 7, 1), "lc_bit_m1": (101, 0, 8), "lc_sample": (102, 0, 8),
+    "lc_stuff_n": (100, 4, 3), "lc_stuff_any": (100, 7, 1), "lc_bit_m1": (101, 0, 8), "lc_sample": (102, 0, 8), "lc_arb": (103, 0, 1),
 }
 
 
