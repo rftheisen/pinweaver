@@ -2,7 +2,8 @@
 
 Turns a text program into 16-bit instruction words. Syntax (see docs/isa.md):
 
-    .side_set 1 [opt]      ; side-set pin count, optional enable bit
+    .side_set 1 [opt] [pindirs]  ; side-set pin count, optional enable bit,
+                                 ; drive output enables instead of values
     .wrap_target           ; loop start (default: first instruction)
     .wrap                  ; loop end   (default: last instruction)
     label:
@@ -47,6 +48,7 @@ class Program:
     wrap_top: int
     side_count: int = 0
     side_opt: bool = False
+    side_pindirs: bool = False
     labels: dict[str, int] = field(default_factory=dict)
     lines: list[str] = field(default_factory=list)
 
@@ -55,6 +57,7 @@ class Program:
         return {
             "side_count": self.side_count,
             "side_en": int(self.side_opt),
+            "side_pindirs": int(self.side_pindirs),
             "wrap_bottom": self.wrap_bottom,
             "wrap_top": self.wrap_top,
             "start_pc": self.origin,
@@ -70,7 +73,7 @@ def _num(tok: str) -> int:
 
 
 def assemble(src: str, origin: int = 0, name: str = "prog") -> Program:
-    side_count, side_opt = 0, False
+    side_count, side_opt, side_pindirs = 0, False, False
     body: list[tuple[int, str]] = []
     labels: dict[str, int] = {}
     wrap_bottom = wrap_top = None
@@ -92,7 +95,9 @@ def assemble(src: str, origin: int = 0, name: str = "prog") -> Program:
             d = parts[0].lower()
             if d == ".side_set":
                 side_count = _num(parts[1])
-                side_opt = len(parts) > 2 and parts[2].lower() == "opt"
+                flags = [p.lower() for p in parts[2:]]
+                side_opt = "opt" in flags
+                side_pindirs = "pindirs" in flags
                 if not 0 <= side_count <= 2:
                     raise AsmError("side_set count must be 0..2")
             elif d == ".wrap_target":
@@ -129,6 +134,7 @@ def assemble(src: str, origin: int = 0, name: str = "prog") -> Program:
         wrap_top=origin + len(body) - 1 if wrap_top is None else wrap_top,
         side_count=side_count,
         side_opt=side_opt,
+        side_pindirs=side_pindirs,
         labels=labels,
         lines=[l for _, l in body],
     )

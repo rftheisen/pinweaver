@@ -33,4 +33,4 @@ def main(modules):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:] or ["test", "test_random"])
+    main(sys.argv[1:] or ["test", "test_i2c", "test_random"])

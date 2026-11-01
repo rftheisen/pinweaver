@@ -2,7 +2,7 @@
 import os
 import sys
 
-from cocotb.triggers import ClockCycles, RisingEdge, Timer
+from cocotb.triggers import ClockCycles, Lock, RisingEdge, Timer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "tools"))
@@ -14,7 +14,7 @@ PROGRAMS = os.path.join(HERE, "..", "programs")
 FIELDS = {
     "out_base": (2, 0, 3), "out_count": (2, 3, 4),
     "set_base": (3, 0, 3), "set_count": (3, 3, 3),
-    "side_base": (4, 0, 3), "side_count": (4, 3, 2), "side_en": (4, 5, 1),
+    "side_base": (4, 0, 3), "side_count": (4, 3, 2), "side_en": (4, 5, 1), "side_pindirs": (4, 6, 1),
     "in_base": (5, 0, 3), "jmp_pin": (5, 3, 3),
     "out_shr": (6, 0, 1), "in_shr": (6, 1, 1), "autopull": (6, 2, 1), "autopush": (6, 3, 1),
     "pull_thresh": (7, 0, 4), "push_thresh": (7, 4, 4),
@@ -46,9 +46,14 @@ class Host:
     def __init__(self, dut, half_ns=160):
         self.dut = dut
         self.half = half_ns
+        self.lock = Lock()
         dut.ui_in.value = 0b100
 
     async def xfer(self, data):
+        async with self.lock:
+            return await self._xfer(data)
+
+    async def _xfer(self, data):
         dut, half = self.dut, self.half
         dut.ui_in.value = 0b000
         await Timer(half, unit="ns")
@@ -179,3 +184,105 @@ async def spi_device(dut, pins, sck, mosi, miso, cs, replies, received):
             shift_out = (shift_out << 1) & 0xFF
             pins.drive(miso, (shift_out >> 7) & 1)
         last_sck, last_cs = s, c
+
+
+class I2CDevice:
+    """I2C device model: a 256-byte memory at `addr`, like a small EEPROM.
+
+    Write [reg, data...] sets the pointer then stores bytes; read returns bytes
+    from the pointer. Holds SCL low for `stretch` clocks after each byte (clock
+    stretching), or forever when `stuck` is set. Records START / STOP events.
+    """
+
+    def __init__(self, dut, pins, sda, scl, addr=0x50, stretch=0):
+        self.dut, self.pins, self.sda, self.scl = dut, pins, sda, scl
+        self.addr, self.stretch = addr, stretch
+        self.mem = [0] * 256
+        self.events = []
+        self.stuck = False
+        self.violations = []
+        self.stretched = 0  # clocks the master spent waiting on our SCL hold
+
+    async def run(self):
+        p, sda, scl = self.pins, self.sda, self.scl
+        sda_low = scl_low = False
+        hold = 0
+        prev_sda = prev_scl = 1
+        state, bits, shift, ptr, first, rw, tx, master_ack = "idle", 0, 0, 0, True, 0, 0, 1
+        while True:
+            await RisingEdge(self.dut.clk)
+            if hold:
+                hold -= 1
+                scl_low = hold > 0
+            if self.stuck:
+                scl_low = True
+            bus_sda = int(not p.oe(sda) and not sda_low)
+            bus_scl = int(not p.oe(scl) and not scl_low)
+            if scl_low and not p.oe(scl):
+                self.stretched += 1
+            # master must only drive 0 (open drain)
+            if (p.oe(sda) and p.out(sda)) or (p.oe(scl) and p.out(scl)):
+                self.violations.append("drove a line high")
+            p.drive(sda, bus_sda)
+            p.drive(scl, bus_scl)
+            rise = not prev_scl and bus_scl
+            fall = prev_scl and not bus_scl
+            if prev_scl and bus_scl and prev_sda != bus_sda:
+                if bus_sda == 0:
+                    self.events.append("S")
+                    state, bits, shift, sda_low = "addr", 0, 0, False
+                else:
+                    self.events.append("P")
+                    state, sda_low = "idle", False
+            elif rise:
+                if state in ("addr", "wr") and bits < 8:
+                    shift = ((shift << 1) | bus_sda) & 0xFF
+                    bits += 1
+                elif state == "rd":
+                    bits += 1
+                    if bits == 9:
+                        master_ack = bus_sda
+            elif fall:
+                if state in ("addr", "wr"):
+                    if bits == 8:
+                        ack = True
+                        if state == "addr":
+                            ack = (shift >> 1) == self.addr
+                            rw = shift & 1
+                            self.events.append(f"A{shift:02x}{'+' if ack else '-'}")
+                            if not ack:
+                                state = "ignore"
+                        else:
+                            if first:
+                                ptr, first = shift, False
+                            else:
+                                self.mem[ptr] = shift
+                                ptr = (ptr + 1) & 0xFF
+                        sda_low = ack
+                        bits = 9
+                        if self.stretch:
+                            hold, scl_low = self.stretch, True
+                    elif bits == 9:
+                        sda_low, bits, shift = False, 0, 0
+                        if state == "addr" and rw:
+                            state, tx = "rd", self.mem[ptr]
+                            sda_low = not ((tx >> 7) & 1)
+                        elif state == "addr":
+                            state, first = "wr", True
+                elif state == "rd":
+                    if bits < 8:
+                        sda_low = not ((tx >> (7 - bits)) & 1)
+                    elif bits == 8:
+                        sda_low = False
+                    else:
+                        ptr = (ptr + 1) & 0xFF
+                        if master_ack == 0:
+                            tx, bits = self.mem[ptr], 0
+                            sda_low = not ((tx >> 7) & 1)
+                        else:
+                            state, sda_low = "done", False
+                        if self.stretch:
+                            hold, scl_low = self.stretch, True
+                elif state == "ignore":
+                    sda_low = False
+            prev_sda, prev_scl = bus_sda, bus_scl

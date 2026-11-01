@@ -31,6 +31,7 @@ class Config:
     side_base: int = 0
     side_count: int = 0
     side_en: int = 0
+    side_pindirs: int = 0
     in_base: int = 0
     jmp_pin: int = 0
     out_shr: int = 0
@@ -255,7 +256,8 @@ class Engine:
                     fclr |= 1 << (v & 3)
 
         if side_valid:
-            s["pins_out"] = _map_pins(s["pins_out"], side, c.side_base, c.side_count)
+            key = "pins_oe" if c.side_pindirs else "pins_out"
+            s[key] = _map_pins(s[key], side, c.side_base, c.side_count)
 
         if done:
             s["dly"] = delay

@@ -19,6 +19,7 @@ module pw_engine (
     input  wire [2:0]  side_base,
     input  wire [1:0]  side_count,
     input  wire        side_en,
+    input  wire        side_pindirs,  // side-set drives output enables instead of values
     input  wire [2:0]  in_base,
     input  wire [2:0]  jmp_pin,
     input  wire        out_shr,
@@ -278,7 +279,10 @@ module pw_engine (
         default: ;  // reserved: NOP
       endcase
 
-      if (side_valid) n_out = map_pins(n_out, {6'd0, side_v}, side_base, {2'd0, side_count});
+      if (side_valid) begin
+        if (side_pindirs) n_oe  = map_pins(n_oe,  {6'd0, side_v}, side_base, {2'd0, side_count});
+        else              n_out = map_pins(n_out, {6'd0, side_v}, side_base, {2'd0, side_count});
+      end
 
       if (done) begin
         n_dly = delay_v;

@@ -1,0 +1,77 @@
+; I2C master with clock stretching and a stuck-bus timeout.
+;
+; Open drain: both lines only ever drive 0. Output enable 1 = pull the line
+; low, 0 = let the pull-up take it high.
+; Pins: SET group = SDA (1 pin), OUT group = SDA (1 pin), side-set = SCL
+;       (pindirs), in_base = SDA so "pin 0" = SDA and "pin 1" = SCL.
+; Config: out_shr = 0, in_shr = 0 (MSB first). SDA and SCL must be next to each other.
+;
+; Host commands (TX FIFO), one byte each:
+;   0x80 START (or repeated START)       0xC0 STOP
+;   0x00 WRITE, then the data byte       -> RX gets the ACK bit (0 = ACK, 1 = NACK)
+;   0x60 READ and ACK (more to come)     -> RX gets the data byte
+;   0x40 READ and NACK (last byte)       -> RX gets the data byte
+; If a device holds SCL low for more than 31 ticks, flag 0 is set (bus error).
+.program i2c_master
+.side_set 1 opt pindirs
+    set pins, 0                     ; output values stay 0 (open drain)
+    set pindirs, 0                  ; release SDA
+.wrap_target
+cmd:
+    pull
+    out x, 1                        ; bit 7: 1 = START / STOP
+    out y, 1                        ; bit 6
+    jmp !x data_cmd
+    jmp !y do_start
+do_stop:
+    set pindirs, 1      side 1 [1]  ; SCL low, then SDA low
+    set y, 31           side 0      ; release SCL
+    wait 1 pin 1 timeout            ; wait for SCL high (device may stretch)
+    jmp timeout bus_err
+    set pindirs, 0             [1]  ; SDA rises while SCL is high = STOP
+    jmp cmd
+do_start:
+    set pindirs, 0             [1]  ; release SDA (SCL is low after a byte, high when idle)
+    set y, 31           side 0      ; release SCL
+    wait 1 pin 1 timeout
+    jmp timeout bus_err
+    set pindirs, 1             [1]  ; SDA falls while SCL is high = START
+    jmp cmd             side 1 [1]  ; SCL low
+data_cmd:
+    jmp !y do_write
+do_read:                            ; OSR bit 7 now = cmd bit 5 = send ACK
+    set pindirs, 0      side 1      ; release SDA so the device can drive it
+    set x, 7            side 1
+rbit:
+    set y, 31           side 0 [1]  ; release SCL
+    wait 1 pin 1 timeout
+    jmp timeout bus_err
+    in pins, 1                 [1]  ; sample SDA while SCL is high
+    jmp x-- rbit        side 1 [1]  ; SCL low
+    push                side 1      ; data byte to the host
+    out pindirs, 1      side 1 [1]  ; ACK = pull SDA low, NACK = release
+    set y, 31           side 0 [1]
+    wait 1 pin 1 timeout
+    jmp timeout bus_err
+    jmp cmd             side 1      ; SCL low
+do_write:
+    pull                            ; the data byte
+    mov osr, ~osr                   ; a 1 bit = release SDA, so invert
+    set x, 7
+wbit:
+    out pindirs, 1      side 1 [1]  ; SCL is low: put the bit on SDA
+    set y, 31           side 0      ; release SCL
+    wait 1 pin 1 timeout
+    jmp timeout bus_err        [1]  ; SCL high time
+    jmp x-- wbit        side 1      ; SCL low
+    set pindirs, 0      side 1 [1]  ; release SDA for the device's ACK
+    set y, 31           side 0      ; release SCL
+    wait 1 pin 1 timeout
+    jmp timeout bus_err
+    in pins, 1                 [1]  ; read ACK
+    push                side 1      ; SCL low; ACK bit to the host
+    jmp cmd
+bus_err:
+    flag set 0
+    set pindirs, 0      side 0      ; let go of both lines
+.wrap

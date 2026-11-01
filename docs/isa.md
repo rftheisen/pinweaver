@@ -91,7 +91,7 @@ copies X into OSR, and a non-blocking PUSH on a full FIFO is dropped.
 | 0, 1 | CLKDIV low / high |
 | 2 | `[2:0]` out_base, `[6:3]` out_count |
 | 3 | `[2:0]` set_base, `[5:3]` set_count |
-| 4 | `[2:0]` side_base, `[4:3]` side_count, `[5]` side_en (optional side-set) |
+| 4 | `[2:0]` side_base, `[4:3]` side_count, `[5]` side_en (optional side-set), `[6]` side_pindirs (side-set drives output enables, for open-drain buses like I2C) |
 | 5 | `[2:0]` in_base, `[5:3]` jmp_pin |
 | 6 | `[0]` out_shr, `[1]` in_shr, `[2]` autopull, `[3]` autopush |
 | 7 | `[3:0]` pull_thresh, `[7:4]` push_thresh (0 = 8) |
@@ -117,3 +117,17 @@ the status byte `{e1_rx_avail, e1_tx_full, e0_rx_avail, e0_tx_full, flags[3:0]}`
 
 Other outputs: `uo[1]` / `uo[2]` = engine 0 / 1 has RX data (interrupt lines),
 `uo[6:3]` = flags.
+
+## Example programs (`programs/`)
+
+| Program | Words | What it does |
+|---|---|---|
+| `uart_tx.pw` | 8 | UART transmitter, 8N1, 8 ticks per bit |
+| `uart_rx.pw` | 10 | UART receiver, samples mid-bit, drops frames with a bad stop bit |
+| `spi_master.pw` | 10 | SPI mode 0 master, one byte per CS pulse |
+| `i2c_master.pw` | 50 | I2C master: START / STOP / WRITE / READ commands, clock stretching, stuck-bus timeout (flag 0) |
+| `timeout_demo.pw` | 10 | WAIT with a timeout |
+
+Assemble with `python tools/pw_asm.py programs/<name>.pw [origin]`. Run the tests
+from Windows with `wsl -d Ubuntu -- bash run.sh test` (needs OSS CAD Suite in
+`~/tools/oss-cad-suite`).
