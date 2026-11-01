@@ -6,7 +6,7 @@
  */
 `default_nettype none
 
-module tt_um_pinweaver (
+module tt_um_rftheisen_pinweaver (
     input  wire [7:0] ui_in,    // [0] SCK, [1] MOSI, [2] CS_n
     output wire [7:0] uo_out,   // [0] MISO, [1] e0 RX ready, [2] e1 RX ready, [6:3] flags
     input  wire [7:0] uio_in,   // GPIO 0-7 (input path)
