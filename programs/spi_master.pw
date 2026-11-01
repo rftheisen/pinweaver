@@ -1,0 +1,18 @@
+; SPI master, mode 0, MSB first, one byte per CS pulse.
+; Pins: SET group = SCK, MOSI, MISO, CS (4 pins from SCK); side-set = SCK;
+;       OUT group = MOSI; in_base = MISO. Config: out_shr = 0, in_shr = 0.
+.program spi_master
+.side_set 1
+    set pins, 0b1000    side 0   ; CS high (value first, then enable the pins)
+    set pindirs, 0b1011 side 0   ; SCK, MOSI, CS out; MISO in
+.wrap_target
+    pull                side 0
+    set pins, 0         side 0   ; CS low
+    set x, 7            side 0
+bit:
+    out pins, 1         side 0 [1]
+    in pins, 1          side 1 [1]   ; sample MISO as SCK rises
+    jmp x-- bit         side 1
+    push                side 0
+    set pins, 0b1000    side 0 [1]   ; CS high
+.wrap

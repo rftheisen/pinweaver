@@ -11,3 +11,7 @@ test/sim_build
 test/__pycache__/
 test/results.xml
 test/gate_level_netlist.v
+test/sim_build
+test/results.xml
+synth_stats.txt
+__pycache__/

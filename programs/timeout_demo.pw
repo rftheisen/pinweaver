@@ -1,0 +1,15 @@
+; WAIT with a timeout: wait up to Y ticks for GPIO 4 to go high.
+; SET group = pins 0..1. Pin 0 high = it arrived, pin 1 high = timed out.
+.program timeout_demo
+    set pins, 0
+    set pindirs, 3
+    set y, 30
+    wait 1 gpio 4 timeout
+    jmp timeout fail
+    set pins, 1
+ok_hang:
+    jmp ok_hang
+fail:
+    set pins, 2
+fail_hang:
+    jmp fail_hang

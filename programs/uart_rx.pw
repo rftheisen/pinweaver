@@ -1,0 +1,15 @@
+; UART receiver, 8N1, LSB first. 8 ticks per bit.
+; Pins: in_base = RX, jmp_pin = RX. Config: in_shr = 1.
+.program uart_rx
+start:
+    wait 0 pin 0            ; start bit begins
+    set x, 7 [9]            ; move to the middle of bit 0
+bitloop:
+    in pins, 1 [6]
+    jmp x-- bitloop
+    jmp pin good            ; middle of the stop bit (the last IN's delay got us here)
+    mov isr, null           ; framing error: drop the byte
+    wait 1 pin 0            ; wait for the line to go idle
+    jmp start
+good:
+    push

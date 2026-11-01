@@ -1,0 +1,14 @@
+; UART transmitter, 8N1, LSB first. 8 ticks per bit.
+; Pins: SET group = TX (1 pin), OUT group = TX (1 pin). Config: out_shr = 1.
+.program uart_tx
+    set pins, 1             ; idle high (set the value before enabling the pin)
+    set pindirs, 1
+.wrap_target
+    pull                    ; wait for a byte (line stays high = stop bit / idle)
+    set x, 7
+    set pins, 0 [7]         ; start bit
+bitloop:
+    out pins, 1 [6]         ; data bit (7 ticks + the jmp = 8)
+    jmp x-- bitloop
+    set pins, 1 [6]         ; stop bit
+.wrap
