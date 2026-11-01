@@ -1,0 +1,90 @@
+; SWD host (ARM Serial Wire Debug): read and write debug / access-port
+; registers, plus raw bit sequences for line reset and JTAG-to-SWD.
+; SWDIO turns around between host and target inside each transaction.
+; The CRC unit set to a 1-bit polynomial computes the 32-bit data parity.
+;
+; Pins: SET group = SWCLK, SWDIO (2 pins from SWCLK); side-set = SWCLK (opt);
+;       OUT group = SWDIO (1 pin); in_base = SWDIO.
+; Config: out_shr 1, in_shr 1 (LSB first), autopull (8), autopush (8);
+;         CRC poly 0x8000 (parity), init 0, crc_on_out, crc_on_in.
+;         clkdiv sets the SWCLK speed (SWD can stall the clock any time).
+;
+; Host commands (TX FIFO):
+;   0, request            read.  RX: ACK, then if ACK = OK: 4 data bytes (LSB
+;                          first), received parity (bit 0), computed parity (bit 7)
+;   1, request            write. RX: ACK; if OK, push the 4 data bytes next
+;                          (the engine adds the parity)
+;   2, bits - 1, bytes    raw bits on SWDIO, LSB first
+; ACK byte: 0x01 OK, 0x02 WAIT, 0x04 FAULT. The request byte is the 8 bits on
+; the wire, LSB first: start, APnDP, RnW, A2, A3, parity, stop, park.
+.program swd
+.side_set 1 opt
+    set pins, 0                 ; SWCLK low
+    set pindirs, 3              ; we drive SWCLK and SWDIO
+.wrap_target
+cmd:
+    pull
+    out x, 8                    ; command
+    set y, 2
+    jmp x!=y request
+raw:
+    pull
+    out x, 8                    ; bit count - 1
+raw_bit:
+    out pins, 1         side 0 [1]
+    jmp x-- raw_bit     side 1 [1]
+    jmp cmd             side 0
+request:
+    mov to, x                   ; remember read (0) / write (1) in TO
+    pull
+    set x, 7
+req_bit:
+    out pins, 1         side 0 [1]
+    jmp x-- req_bit     side 1 [1]
+    set pindirs, 1      side 0 [1]  ; turnaround: the target drives SWDIO now
+    nop                 side 1 [1]
+    set x, 2
+ack_bit:
+    nop                 side 0 [1]  ; the target changes SWDIO while SWCLK is low
+    in pins, 1          side 1 [1]  ; and we sample as it rises
+    jmp x-- ack_bit
+    mov x, isr                  ; ACK sits in ISR bits 7..5
+    in null, 5                  ; line it up; autopush sends the ACK byte
+    set y, 4
+    mov y, ::y                  ; 0x20 = OK in bits 7..5
+    jmp x!=y turn_back          ; WAIT / FAULT: no data phase
+    jmp timeout write
+read:
+    crc init
+    set x, 31
+rd_bit:
+    nop                 side 0 [1]
+    in pins, 1          side 1 [1]  ; 32 data bits, autopush every 8
+    jmp x-- rd_bit
+    crc hold
+    nop                 side 0 [1]
+    in pins, 1          side 1 [1]  ; parity bit from the target
+    in null, 7                  ; push it (bit 0)
+    crc y
+    mov isr, y                  ; our parity (bit 7)
+    push
+turn_back:                      ; turnaround: we drive SWDIO again
+    nop                 side 0 [1]
+    nop                 side 1 [1]
+    set pindirs, 3      side 0
+    jmp cmd
+write:
+    nop                 side 0 [1]  ; turnaround
+    nop                 side 1 [1]
+    set pindirs, 3      side 0
+    crc init
+    set x, 31
+wr_bit:
+    out pins, 1         side 0 [1]  ; autopull brings the data bytes
+    jmp x-- wr_bit      side 1 [1]
+    crc hold
+    crc y
+    mov osr, ::y                ; parity into bit 0
+    out pins, 1         side 0 [1]
+    nop                 side 1 [1]
+.wrap

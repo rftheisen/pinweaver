@@ -81,7 +81,8 @@ src 0 pins, 1 X, 2 Y, 3 ISR, 4 OSR, 5 status `{TO, rx_full, tx_empty}`, 6 flags,
 **SET destinations**: 0 pins, 1 X, 2 Y, 3 pindirs, 4 flag (value bit 4 = set/clear,
 bits 1:0 = flag number).
 
-**CRC unit** (one per engine; not in RP2040 PIO): a 16-bit bit-serial CRC
+**CRC unit** (one per engine; not in RP2040 PIO; with polynomial 0x8000 it is
+a parity unit, used by SWD and PS/2): a 16-bit bit-serial CRC
 register. With `crc_on_out` / `crc_on_in` set, every bit an OUT sends or an IN
 reads also feeds the CRC, in wire order and at no extra cost (an 8-bit OUT
 feeds 8 bits in one tick). An n-bit CRC lives in the top n bits: write
@@ -162,6 +163,8 @@ Other outputs: `uo[1]` / `uo[2]` = engine 0 / 1 has RX data (interrupt lines),
 | `usb_tx.pw` | 38 | Low-speed USB packet sender: SYNC, PID, payload, hardware CRC16, EOP |
 | `usb_rx.pw` | 8 | Low-speed USB packet receiver: NRZI, destuffing, DPLL, end of packet |
 | `can_tx.pw` | 41 | CAN 2.0A sender: stuffing, CRC-15, bus-idle wait, arbitration with back-off, ACK check |
+| `swd.pw` | 56 | ARM SWD host: line reset, DP / AP reads and writes, turnaround, 32-bit parity via the CRC unit, WAIT / FAULT |
+| `ps2_rx.pw` | 13 | PS/2 keyboard / mouse receiver: follows the device clock with edge waits, odd parity via the CRC unit |
 
 Assemble with `python tools/pw_asm.py programs/<name>.pw [origin]`. Run the tests
 from Windows with `wsl -d Ubuntu -- bash run.sh test` (needs OSS CAD Suite in

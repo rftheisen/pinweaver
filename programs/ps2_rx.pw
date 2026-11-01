@@ -1,0 +1,27 @@
+; PS/2 receiver (keyboard or mouse to host). The device drives the clock;
+; the engine follows its falling edges with WAIT ... edge. Odd parity is
+; checked with the CRC unit set to a 1-bit polynomial.
+;
+; Frame: start (0), 8 data bits LSB first, odd parity, stop (1); data is
+; valid when CLK falls.
+; Pins: in_base = DATA, CLK = DATA + 1, jmp_pin = DATA.
+; Config: in_shr 1, autopush (8); CRC poly 0x8000, init 0, crc_on_in.
+; RX FIFO: the data byte, then a status byte: bit 7 = parity OK.
+.program ps2_rx
+.wrap_target
+start:
+    wait 0 edge 1           ; CLK falls: the start bit
+    jmp pin start           ; a start bit must be 0
+    crc init
+    set x, 7
+data:
+    wait 0 edge 1
+    in pins, 1              ; data, LSB first (autopush sends the byte)
+    jmp x-- data
+    wait 0 edge 1
+    in pins, 1              ; parity bit
+    crc y                   ; Y bit 7 = XOR of data and parity: 1 when OK
+    mov isr, y
+    push
+    wait 0 edge 1           ; stop bit
+.wrap
