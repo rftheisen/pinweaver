@@ -15,6 +15,10 @@
   "//": "Users have reported that values up to 80 worked well for them.",
   "PL_TARGET_DENSITY_PCT": 60,
 
+  "//": "SYNTH_HIERARCHY_MODE - synthesize each module on its own, flatten afterwards. With the default",
+  "//": "(flatten first), Yosys 0.66's share pass ran for hours comparing engine 0's logic with engine 1's.",
+  "SYNTH_HIERARCHY_MODE": "deferred_flatten",
+
   "//": "CLOCK_PERIOD - Increase this in case you are getting setup time violations.",
   "//": "The value is in nanoseconds, so 20ns == 50MHz.",
   "CLOCK_PERIOD": 20,
