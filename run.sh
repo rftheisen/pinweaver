@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run from Windows with:  wsl -d Ubuntu -- bash run.sh [test|synth]
+# Run from Windows with:  wsl -d Ubuntu -- bash run.sh [test|synth|synth_ihp|harden]
 # Uses OSS CAD Suite unpacked in ~/tools/oss-cad-suite (simulator, yosys, cocotb).
 set -e
 cd "$(dirname "$0")"
@@ -26,5 +26,44 @@ case "${1:-test}" in
       dfflibmap -liberty $LIB; abc -D 20000 -liberty $LIB; opt_clean; \
       tee -o synth_ihp_stats.txt stat -liberty $LIB"
     grep -E "Chip area|cells$|sg13cmos5l_(df|dl|sdf)" synth_ihp_stats.txt
+    ;;
+  harden)
+    # Full chip build with the same tools as GitHub Actions: Tiny Tapeout's tt_tool,
+    # LibreLane 3.1.0.dev3 (its Docker image pins Yosys, OpenROAD, Magic, KLayout...)
+    # and the IHP PDK at the revision tt-gds-action installs. Set up in ~/tools/tt.
+    # Builds a copy in ~/build/pinweaver (Docker is slow on /mnt/c), uncommitted edits included.
+    TT=~/tools/tt; B=~/build/pinweaver
+    mkdir -p "$B"
+    rsync -a --delete --exclude runs --exclude tt --exclude sim_build --exclude tt_submission ./ "$B/"
+    ln -sfn "$TT/tt-support-tools" "$B/tt"
+    # Local only: cap OpenROAD's threads (default = every thread) so the PC stays usable,
+    # e.g. with a VM running. PW_THREADS=16 bash run.sh harden for more.
+    python3 - "$B/src/config.json" "${PW_THREADS:-8}" <<'PY'
+import json, sys
+p, n = sys.argv[1], int(sys.argv[2])
+c = json.load(open(p))
+c["OPENROAD_THREADS"] = n
+c["STA_THREADS"] = min(n, 3)
+json.dump(c, open(p, "w"), indent=2)
+PY
+    cd "$B"
+    export PDK=ihp-sg13cmos5l PDK_ROOT="$TT/pdk" PYTHONPATH="$TT/pylib" PATH="$TT/bin:$TT/pylib/bin:$PATH"
+    t0=$(date +%s)
+    set +e
+    python3 ./tt/tt_tool.py --create-user-config --ihp && python3 ./tt/tt_tool.py --harden --ihp 2>&1 | tee harden.log
+    rc=${PIPESTATUS[0]}
+    set -e
+    t=$(( $(date +%s) - t0 ))
+    echo
+    echo "=== build $([ $rc -eq 0 ] && echo PASSED || echo FAILED) in $((t/60)) min $((t%60)) s (goal 20-25, limit 40) ==="
+    # Per-step times, slowest first (LibreLane writes one folder per step).
+    for d in runs/wokwi/[0-9]*-*/; do
+      [ -f "$d/runtime.txt" ] && echo "$(cat "$d/runtime.txt") $(basename "$d")"
+    done | sort -r | head -8
+    if [ $rc -eq 0 ]; then
+      python3 ./tt/tt_tool.py --print-stats --ihp || true
+      python3 ./tt/tt_tool.py --print-cell-category --ihp | tail -15 || true
+    fi
+    exit $rc
     ;;
 esac
