@@ -28,6 +28,7 @@ module tt_um_rftheisen_pinweaver (
   wire [1:0]  en, restart, tx_push, rx_pop;
   wire        la_arm, la_stop, la_we, la_half;
   wire [6:0]  la_waddr, la_ptr, la_trig, rd_addr;
+  wire        rd_busy;
   wire [15:0] la_wdata, imem_rd;
   wire [1:0]  la_state;
   wire [3:0]  host_fset, host_fclr;
@@ -56,21 +57,23 @@ module tt_um_rftheisen_pinweaver (
       .tx_push(tx_push), .tx_data(tx_data), .rx_pop(rx_pop),
       .rx_head({rx_head1, rx_head0}), .rx_empty(rx_empty),
       .dbg({1'b0, la_trig, 1'b0, la_ptr, 5'b0, la_half, la_state, status, 1'b0, pc1, 1'b0, pc0}),
-      .rd_addr(rd_addr), .rd_data(imem_rd),
+      .rd_addr(rd_addr), .rd_busy(rd_busy), .rd_data(imem_rd),
       .flag_set(host_fset), .flag_clr(host_fclr)
   );
 
   // ------------------------------------------------------------ instruction memory
   // (also the logic analyzer's sample buffer; the analyzer wins a write clash)
-  // 128 words = two 64-word pages, built from latches
+  // 128 words = two 64-word pages, built from latches. Two read ports: engine 0,
+  // and engine 1, which the host's read-back borrows (engine 1 pauses meanwhile).
   wire [15:0] instr0, instr1;
+  assign imem_rd = instr1;
   pw_latch_mem u_mem (
       .clk(clk), .rst_n(rst_n),
       .we(la_we | imem_we),
       .waddr(la_we ? la_waddr : imem_addr),
       .wdata(la_we ? la_wdata : imem_data),
-      .raddr0(pc0), .raddr1(pc1), .raddr2(rd_addr),
-      .rdata0(instr0), .rdata1(instr1), .rdata2(imem_rd)
+      .raddr0(pc0), .raddr1(rd_busy ? rd_addr : pc1),
+      .rdata0(instr0), .rdata1(instr1)
   );
 
   // ------------------------------------------------------------ config registers
@@ -147,7 +150,7 @@ module tt_um_rftheisen_pinweaver (
   );
 
   pw_engine eng1 (
-      .clk(clk), .rst_n(rst_n), .enable(en[1]), .restart(restart[1]),
+      .clk(clk), .rst_n(rst_n), .enable(en[1] && !rd_busy), .restart(restart[1]),
       .clkdiv({cfg[17], cfg[16]}),
       .out_base(cfg[18][2:0]), .out_count(cfg[18][6:3]),
       .set_base(cfg[19][2:0]), .set_count(cfg[19][5:3]),

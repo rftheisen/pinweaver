@@ -37,6 +37,7 @@ module pw_host (
     input  wire [47:0] dbg,
     // instruction memory read-back
     output wire [6:0]  rd_addr,
+    output wire        rd_busy,   // a memory read-back is using engine 1's read port
     input  wire [15:0] rd_data,
     // shared flags
     output reg  [3:0]  flag_set,
@@ -70,6 +71,7 @@ module pw_host (
 
   // memory read-back: the address byte itself, then the auto-incrementing address
   assign rd_addr = (phase == 4'd0) ? byte_data[6:0] : addr[6:0];
+  assign rd_busy = active && (cmd == C_READ);
 
   // the byte to send next, decided when a byte arrives
   always @(*) begin

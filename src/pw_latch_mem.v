@@ -7,7 +7,7 @@
  * of that clock cycle and close on the next rising edge. The latch inputs
  * come straight from flip-flops, so they are stable the whole time a word is
  * open. Writes land half a cycle after a flip-flop memory would have taken
- * them. Reads are combinational, three ports.
+ * them. Reads are combinational, two ports.
  * SPDX-License-Identifier: Apache-2.0
  */
 `default_nettype none
@@ -20,10 +20,8 @@ module pw_latch_mem (
     input  wire [15:0] wdata,
     input  wire [6:0]  raddr0,
     input  wire [6:0]  raddr1,
-    input  wire [6:0]  raddr2,
     output wire [15:0] rdata0,
-    output wire [15:0] rdata1,
-    output wire [15:0] rdata2
+    output wire [15:0] rdata1
 );
   reg        w_en;
   reg [6:0]  w_addr;
@@ -54,5 +52,4 @@ module pw_latch_mem (
 
   assign rdata0 = word[raddr0];
   assign rdata1 = word[raddr1];
-  assign rdata2 = word[raddr2];
 endmodule

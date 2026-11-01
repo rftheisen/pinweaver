@@ -10,6 +10,7 @@ fill and routing space.
 | 2026-11-01 | 128-word memory (flip-flops) | 21,313 | 0.337 mm² | ~47% |
 | 2026-11-01 | latch memory | 16,653 | 0.249 mm² | ~34% |
 | 2026-11-01 | + CAN arbitration | — | 0.250 mm² | ~35% |
+| 2026-11-01 | read-back shares engine 1's port | 15,010 | 0.233 mm² | ~25% of the real 6x4 (0.92 mm²) |
 
 Where it goes: the instruction memory is now 2,048 latches
 (`sg13cmos5l_dlhq_1`, 0.063 mm²) instead of flip-flops plus write muxes;

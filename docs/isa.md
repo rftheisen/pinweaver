@@ -144,7 +144,7 @@ the status byte `{e1_rx_avail, e1_tx_full, e0_rx_avail, e0_tx_full, flags[3:0]}`
 | `0x05` | engine, then dummy bytes | each dummy byte reads one RX FIFO byte |
 | `0x06` | dummy bytes | read PC0, PC1, status, analyzer `{trig_half, state}`, analyzer pointer, trigger word |
 | `0x07` | `[3:0]` set, `[7:4]` clear | change the shared flags |
-| `0x08` | addr, then dummy bytes | read instruction memory (hi, lo, next word…): programs or captured samples |
+| `0x08` | addr, then dummy bytes | read instruction memory (hi, lo, next word…): programs or captured samples. Uses engine 1's memory port, so **engine 1 pauses** while the transaction lasts (engine 0 is not affected) |
 
 Other outputs: `uo[1]` / `uo[2]` = engine 0 / 1 has RX data (interrupt lines),
 `uo[6:3]` = flags.
