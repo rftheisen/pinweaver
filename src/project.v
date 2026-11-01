@@ -26,6 +26,10 @@ module tt_um_pinweaver (
   wire [15:0] imem_data;
   wire [7:0]  cfg_addr, cfg_data, tx_data;
   wire [1:0]  en, restart, tx_push, rx_pop;
+  wire        la_arm, la_stop, la_we, la_half;
+  wire [5:0]  la_waddr, la_ptr, la_trig, rd_addr;
+  wire [15:0] la_wdata, imem_rd;
+  wire [1:0]  la_state;
   wire [3:0]  host_fset, host_fclr;
 
   wire [1:0]  tx_empty, tx_full, rx_empty, rx_full;
@@ -48,18 +52,24 @@ module tt_um_pinweaver (
       .byte_data(byte_data), .first_byte(first_byte), .resp(resp),
       .imem_we(imem_we), .imem_addr(imem_addr), .imem_data(imem_data),
       .cfg_we(cfg_we), .cfg_addr(cfg_addr), .cfg_data(cfg_data),
-      .en(en), .restart(restart),
+      .en(en), .restart(restart), .la_arm(la_arm), .la_stop(la_stop),
       .tx_push(tx_push), .tx_data(tx_data), .rx_pop(rx_pop),
       .rx_head({rx_head1, rx_head0}), .rx_empty(rx_empty),
-      .dbg({status, 2'b00, pc1, 2'b00, pc0}),
+      .dbg({2'b00, la_trig, 2'b00, la_ptr, 5'b0, la_half, la_state, status, 2'b00, pc1, 2'b00, pc0}),
+      .rd_addr(rd_addr), .rd_data(imem_rd),
       .flag_set(host_fset), .flag_clr(host_fclr)
   );
 
   // ------------------------------------------------------------ instruction memory
+  // (also the logic analyzer's sample buffer; the analyzer wins a write clash)
   reg [15:0] imem[0:63];
-  always @(posedge clk) if (imem_we) imem[imem_addr] <= imem_data;
+  always @(posedge clk) begin
+    if (la_we) imem[la_waddr] <= la_wdata;
+    else if (imem_we) imem[imem_addr] <= imem_data;
+  end
   wire [15:0] instr0 = imem[pc0];
   wire [15:0] instr1 = imem[pc1];
+  assign imem_rd = imem[rd_addr];
 
   // ------------------------------------------------------------ config registers
   reg [7:0] cfg[0:31];
@@ -69,6 +79,16 @@ module tt_um_pinweaver (
       for (k = 0; k < 32; k = k + 1) cfg[k] <= ((k % 16) == 9) ? 8'd63 : 8'd0;
     end else if (cfg_we && cfg_addr[7:5] == 3'd0) begin
       cfg[cfg_addr[4:0]] <= cfg_data;
+    end
+  end
+
+  // global config: logic analyzer (addresses 32..39)
+  reg [7:0] lacfg[0:7];
+  always @(posedge clk) begin
+    if (!rst_n) begin
+      for (k = 0; k < 8; k = k + 1) lacfg[k] <= (k == 1) ? 8'd63 : 8'd0;
+    end else if (cfg_we && cfg_addr[7:3] == 5'd4) begin
+      lacfg[cfg_addr[2:0]] <= cfg_data;
     end
   end
 
@@ -129,6 +149,17 @@ module tt_um_pinweaver (
       .tx_empty(tx_empty[1]), .tx_data(txd1), .tx_pop(pop1),
       .rx_full(rx_full[1]), .rx_push(push1), .rx_data(rxd1),
       .flags_in(flags), .flag_set(fs1), .flag_clr(fc1)
+  );
+
+  // ------------------------------------------------------------ logic analyzer
+  pw_la u_la (
+      .clk(clk), .rst_n(rst_n), .arm(la_arm), .stop(la_stop),
+      .start(lacfg[0][5:0]), .last(lacfg[1][5:0]), .post(lacfg[2][5:0]),
+      .div({lacfg[4], lacfg[3]}), .trig_mask(lacfg[5]), .trig_value(lacfg[6]),
+      .trig_mode(lacfg[7][1:0]),
+      .pins(pin_s2), .flag3(flags[3]),
+      .we(la_we), .waddr(la_waddr), .wdata(la_wdata),
+      .state(la_state), .ptr(la_ptr), .trig_word(la_trig), .trig_half(la_half)
   );
 
   // ------------------------------------------------------------ shared flags

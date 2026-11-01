@@ -85,13 +85,38 @@ class Host:
         cfg.update(pins)
         await self.xfer([0x02, engine * 16] + config_bytes(cfg))
 
-    async def ctrl(self, enable, restart=0):
-        await self.xfer([0x03, enable | (restart << 4)])
+    async def ctrl(self, enable, restart=0, la_arm=0, la_stop=0):
+        await self.xfer([0x03, enable | (restart << 4) | (la_arm << 6) | (la_stop << 7)])
 
     async def debug(self):
         """Returns (status, pc0, pc1)."""
         r = await self.xfer([0x06, 0, 0, 0])
         return r[3], r[1], r[2]
+
+    async def la_status(self):
+        """Returns (state, ptr, trigger word, trigger half)."""
+        r = await self.xfer([0x06, 0, 0, 0, 0, 0, 0])
+        return r[4] & 3, r[5], r[6], (r[4] >> 2) & 1
+
+    async def la_config(self, start, last, post, div=0, mask=0, value=0, mode=0):
+        await self.xfer([0x02, 32, start, last, post, div & 0xFF, div >> 8, mask, value, mode])
+
+    async def read_imem(self, addr, n):
+        r = (await self.xfer([0x08, addr] + [0] * (2 * n)))[2:]
+        return [(r[2 * i] << 8) | r[2 * i + 1] for i in range(n)]
+
+    async def la_samples(self, start, last):
+        """Read the capture ring, oldest sample first. Returns (samples, trigger index)."""
+        state, ptr, tw, th = await self.la_status()
+        words = await self.read_imem(start, last - start + 1)
+        order = list(range(ptr, last + 1)) + list(range(start, ptr))
+        samples, trig = [], None
+        for w in order:
+            if w == tw:
+                trig = len(samples) + th
+            v = words[w - start]
+            samples += [v >> 8, v & 0xFF]
+        return samples, trig
 
     async def status(self):
         return (await self.xfer([0x00]))[0]
@@ -125,6 +150,21 @@ class Pins:
     def drive(self, n, bit):
         self.val = (self.val & ~(1 << n)) | ((bit & 1) << n)
         self.dut.uio_in.value = self.val
+
+    def pad(self, n):
+        """What the pad sees: our output when driving, else the input we drive."""
+        if self.oe(n):
+            return self.out(n)
+        return (self.val >> n) & 1
+
+    async def mirror(self, pull_up=0xFF):
+        """Make uio_in follow the pads, like real silicon (undriven pins pulled up)."""
+        ext = self.val | pull_up
+        while True:
+            await RisingEdge(self.dut.clk)
+            oe = int(self.dut.uio_oe.value)
+            out = int(self.dut.uio_out.value)
+            self.dut.uio_in.value = (out & oe) | (ext & ~oe & 0xFF)
 
     def out(self, n):
         return (int(self.dut.uio_out.value) >> n) & 1

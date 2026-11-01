@@ -1,0 +1,8 @@
+; Firmware trigger for the logic analyzer: wait for GPIO 7 to go high, then
+; set flag 3 (the analyzer's "flag" trigger). Any program can do this, e.g.
+; on an I2C START or a bad CRC.
+.program la_trigger
+    wait 1 gpio 7
+    flag set 3
+hang:
+    jmp hang

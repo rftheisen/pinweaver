@@ -25,20 +25,25 @@ module pw_host (
     // engine control
     output reg  [1:0]  en,
     output reg  [1:0]  restart,
+    output reg         la_arm,
+    output reg         la_stop,
     // FIFOs
     output reg  [1:0]  tx_push,
     output reg  [7:0]  tx_data,
     output reg  [1:0]  rx_pop,
     input  wire [15:0] rx_head,  // {engine 1, engine 0}
     input  wire [1:0]  rx_empty,
-    // debug read-back {status, pc1, pc0}
-    input  wire [23:0] dbg,
+    // debug read-back {la_trig, la_ptr, la_state, status, pc1, pc0}
+    input  wire [47:0] dbg,
+    // instruction memory read-back
+    output wire [5:0]  rd_addr,
+    input  wire [15:0] rd_data,
     // shared flags
     output reg  [3:0]  flag_set,
     output reg  [3:0]  flag_clr
 );
   localparam C_IMEM = 8'h01, C_CFG = 8'h02, C_CTRL = 8'h03, C_TX = 8'h04,
-             C_RX = 8'h05, C_DBG = 8'h06, C_FLAG = 8'h07;
+             C_RX = 8'h05, C_DBG = 8'h06, C_FLAG = 8'h07, C_READ = 8'h08;
 
   reg [7:0] cmd;
   reg [3:0] phase;    // bytes received after the command byte (saturates)
@@ -56,9 +61,15 @@ module pw_host (
       4'd0: dbg_byte = dbg[7:0];
       4'd1: dbg_byte = dbg[15:8];
       4'd2: dbg_byte = dbg[23:16];
+      4'd3: dbg_byte = dbg[31:24];
+      4'd4: dbg_byte = dbg[39:32];
+      4'd5: dbg_byte = dbg[47:40];
       default: dbg_byte = 8'd0;
     endcase
   endfunction
+
+  // memory read-back: the address byte itself, then the auto-incrementing address
+  assign rd_addr = (phase == 4'd0) ? byte_data[5:0] : addr[5:0];
 
   // the byte to send next, decided when a byte arrives
   always @(*) begin
@@ -69,6 +80,7 @@ module pw_host (
       case (cmd)
         C_RX:  if (!rx_empty[rsel]) resp = rx_sel;
         C_DBG: resp = dbg_byte(phase + 4'd1);
+        C_READ: resp = (phase != 4'd0 && hi_have) ? rd_data[7:0] : rd_data[15:8];
         default: ;
       endcase
     end
@@ -76,6 +88,7 @@ module pw_host (
 
   always @(posedge clk) begin
     imem_we <= 1'b0; cfg_we <= 1'b0; restart <= 2'd0; tx_push <= 2'd0; rx_pop <= 2'd0;
+    la_arm <= 1'b0; la_stop <= 1'b0;
     flag_set <= 4'd0; flag_clr <= 4'd0;
     if (!rst_n) begin
       cmd <= 8'd0; phase <= 4'd0; addr <= 8'd0; hi <= 8'd0; hi_have <= 1'b0;
@@ -103,7 +116,14 @@ module pw_host (
             C_CFG:
               if (phase == 4'd0) addr <= byte_data;
               else begin cfg_we <= 1'b1; cfg_addr <= addr; cfg_data <= byte_data; addr <= addr + 8'd1; end
-            C_CTRL: begin en <= byte_data[1:0]; restart <= byte_data[5:4]; end
+            C_CTRL: begin
+              en <= byte_data[1:0]; restart <= byte_data[5:4];
+              la_arm <= byte_data[6]; la_stop <= byte_data[7];
+            end
+            C_READ:  // hi byte, then lo byte, then the next word
+              if (phase == 4'd0) begin addr <= byte_data; hi_have <= 1'b1; end
+              else if (hi_have) begin addr <= addr + 8'd1; hi_have <= 1'b0; end
+              else hi_have <= 1'b1;
             C_TX:
               if (phase == 4'd0) sel <= byte_data[0];
               else begin tx_push[sel] <= 1'b1; tx_data <= byte_data; end

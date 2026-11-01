@@ -123,11 +123,12 @@ the status byte `{e1_rx_avail, e1_tx_full, e0_rx_avail, e0_tx_full, flags[3:0]}`
 |---|---|---|
 | `0x01` | addr, then (hi, lo) pairs | write instruction memory, auto-increment |
 | `0x02` | addr, then data… | write config registers, auto-increment |
-| `0x03` | `[1:0]` enable, `[5:4]` restart | run / stop engines; restart = PC ← start, clear FIFOs and registers |
+| `0x03` | `[1:0]` enable, `[5:4]` restart, `[6]` arm analyzer, `[7]` stop analyzer | run / stop engines; restart = PC ← start, clear FIFOs and registers. Always send the enable bits you want to keep |
 | `0x04` | engine, then data… | push bytes to that engine's TX FIFO |
 | `0x05` | engine, then dummy bytes | each dummy byte reads one RX FIFO byte |
-| `0x06` | dummy bytes | read PC0, PC1, status (debug) |
+| `0x06` | dummy bytes | read PC0, PC1, status, analyzer `{trig_half, state}`, analyzer pointer, trigger word |
 | `0x07` | `[3:0]` set, `[7:4]` clear | change the shared flags |
+| `0x08` | addr, then dummy bytes | read instruction memory (hi, lo, next word…): programs or captured samples |
 
 Other outputs: `uo[1]` / `uo[2]` = engine 0 / 1 has RX data (interrupt lines),
 `uo[6:3]` = flags.
@@ -142,7 +143,39 @@ Other outputs: `uo[1]` / `uo[2]` = engine 0 / 1 has RX data (interrupt lines),
 | `i2c_master.pw` | 50 | I2C master: START / STOP / WRITE / READ commands, clock stretching, stuck-bus timeout (flag 0) |
 | `timeout_demo.pw` | 10 | WAIT with a timeout |
 | `crc_demo.pw` | 12 | Hardware CRC over host bytes, returns the CRC |
+| `la_trigger.pw` | 3 | Fires the logic analyzer (flag 3) when GPIO 7 goes high |
 
 Assemble with `python tools/pw_asm.py programs/<name>.pw [origin]`. Run the tests
 from Windows with `wsl -d Ubuntu -- bash run.sh test` (needs OSS CAD Suite in
 `~/tools/oss-cad-suite`).
+
+## Logic analyzer
+
+The analyzer records the 8 GPIO pads (what is really on the pins, including the
+chip's own outputs) into a ring buffer **inside the instruction memory**: any
+words not holding programs can be the buffer, so it costs no extra memory. Two
+samples per 16-bit word, the first in the high byte.
+
+It runs from the moment it is armed, overwriting the oldest words, until the
+trigger fires, then captures `post` more words after the word holding the
+trigger sample and stops. So the buffer shows both what led up to the trigger
+and what followed. Read it back with command `0x08`. The oldest word is at the
+analyzer pointer once the ring has wrapped.
+
+Triggers: 0 = immediately, 1 = pins match `value` under `mask`, 2 = any masked
+pin changes, 3 = **flag 3**. Because engines can set flags, a program can be
+the trigger: on an I2C START, a framing error or a bad CRC
+(`programs/la_trigger.pw`).
+
+| Addr | Field |
+|---|---|
+| 32 | buffer first word |
+| 33 | buffer last word (reset 63) |
+| 34 | words after the trigger word |
+| 35, 36 | sample divider low / high (sample every div + 1 clocks) |
+| 37 | trigger mask |
+| 38 | trigger value |
+| 39 | `[1:0]` trigger mode |
+
+The analyzer writes win over host writes to the same memory. Don't let it
+overwrite a running program.

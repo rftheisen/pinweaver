@@ -7,7 +7,7 @@ from cocotb_tools.runner import get_runner
 
 HERE = Path(__file__).resolve().parent
 SRC = HERE.parent / "src"
-SOURCES = ["project.v", "pw_engine.v", "pw_fifo.v", "pw_spi_slave.v", "pw_host.v"]
+SOURCES = ["project.v", "pw_engine.v", "pw_fifo.v", "pw_spi_slave.v", "pw_host.v", "pw_la.v"]
 
 
 def main(modules):
@@ -33,4 +33,4 @@ def main(modules):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:] or ["test", "test_i2c", "test_crc", "test_random"])
+    main(sys.argv[1:] or ["test", "test_i2c", "test_crc", "test_la", "test_random"])
