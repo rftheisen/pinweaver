@@ -1,6 +1,6 @@
 """Random differential test: the RTL engine must match tools/pw_model.py on every clock.
 
-Each run loads a random 64-word program and a random config into engine 0,
+Each run loads a random 128-word program and a random config into engine 0,
 feeds random pin values and random TX bytes, and compares every engine
 register after every clock edge.
 """
@@ -64,7 +64,7 @@ async def test_random_vs_model(dut):
         dut.rst_n.value = 1
         await ClockCycles(dut.clk, 2)
 
-        words = [random_word(rng) for _ in range(64)]
+        words = [random_word(rng) for _ in range(128)]
         cfg = random_config(rng)
         data = []
         for w in words:

@@ -19,7 +19,7 @@ FIELDS = {
     "in_base": (5, 0, 3), "jmp_pin": (5, 3, 3),
     "out_shr": (6, 0, 1), "in_shr": (6, 1, 1), "autopull": (6, 2, 1), "autopush": (6, 3, 1),
     "pull_thresh": (7, 0, 4), "push_thresh": (7, 4, 4),
-    "wrap_bottom": (8, 0, 6), "wrap_top": (9, 0, 6), "start_pc": (10, 0, 6),
+    "wrap_bottom": (8, 0, 7), "wrap_top": (9, 0, 7), "start_pc": (10, 0, 7),
     "crc_poly": (11, 0, 16), "crc_init": (13, 0, 16),
     "crc_on_out": (15, 4, 1), "crc_on_in": (15, 5, 1),
     # line coder: registers 40 + 4 * engine (LC_REG + offset below)

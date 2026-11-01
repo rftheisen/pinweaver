@@ -13,8 +13,8 @@ module pw_la (
     input  wire        arm,         // pulse: start capturing
     input  wire        stop,        // pulse: stop now
     // config
-    input  wire [5:0]  start,       // first word of the buffer
-    input  wire [5:0]  last,        // last word of the buffer
+    input  wire [6:0]  start,       // first word of the buffer
+    input  wire [6:0]  last,        // last word of the buffer
     input  wire [5:0]  post,        // words to capture after the trigger
     input  wire [15:0] div,         // sample every div + 1 clocks
     input  wire [7:0]  trig_mask,
@@ -25,12 +25,12 @@ module pw_la (
     input  wire        flag3,
     // memory write port
     output reg         we,
-    output reg  [5:0]  waddr,
+    output reg  [6:0]  waddr,
     output reg  [15:0] wdata,
     // status
     output reg  [1:0]  state,       // 0 idle, 1 waiting for trigger, 2 triggered, 3 done
-    output reg  [5:0]  ptr,         // next word to write
-    output reg  [5:0]  trig_word,   // word that holds the trigger sample
+    output reg  [6:0]  ptr,         // next word to write
+    output reg  [6:0]  trig_word,   // word that holds the trigger sample
     output reg         trig_half    // 0 = trigger sample is the high byte, 1 = low byte
 );
   localparam IDLE = 2'd0, WAIT = 2'd1, POST = 2'd2, DONE = 2'd3;
@@ -54,14 +54,14 @@ module pw_la (
     endcase
   end
 
-  wire [5:0] next_ptr = (ptr == last) ? start : ptr + 6'd1;
+  wire [6:0] next_ptr = (ptr == last) ? start : ptr + 7'd1;
 
   always @(posedge clk) begin
     we <= 1'b0;
     if (!rst_n) begin
-      state <= IDLE; ptr <= 6'd0; trig_word <= 6'd0; trig_half <= 1'b0;
+      state <= IDLE; ptr <= 7'd0; trig_word <= 7'd0; trig_half <= 1'b0;
       cnt <= 16'd0; first <= 8'd0; half <= 1'b0; prev <= 8'd0; left <= 6'd0;
-      waddr <= 6'd0; wdata <= 16'd0;
+      waddr <= 7'd0; wdata <= 16'd0;
     end else if (arm) begin
       state <= WAIT; ptr <= start; cnt <= 16'd0; half <= 1'b0; prev <= pins;
     end else if (stop) begin

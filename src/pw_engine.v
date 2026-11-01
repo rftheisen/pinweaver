@@ -28,9 +28,9 @@ module pw_engine (
     input  wire        autopush,
     input  wire [3:0]  pull_thresh,
     input  wire [3:0]  push_thresh,
-    input  wire [5:0]  wrap_bottom,
-    input  wire [5:0]  wrap_top,
-    input  wire [5:0]  start_pc,
+    input  wire [6:0]  wrap_bottom,
+    input  wire [6:0]  wrap_top,
+    input  wire [6:0]  start_pc,
     input  wire [15:0] crc_poly,
     input  wire [15:0] crc_init,
     input  wire        crc_on_out,   // every OUT bit feeds the CRC
@@ -45,7 +45,7 @@ module pw_engine (
     input  wire [7:0]  lc_bit_m1,    // bit clock period - 1, in ticks
     input  wire [7:0]  lc_sample,    // bit clock phase that fires the coded IN / OUT
     // instruction memory
-    output wire [5:0]  pc_o,
+    output wire [6:0]  pc_o,
     input  wire [15:0] instr,
     // pins
     input  wire [7:0]  pins_in,
@@ -66,7 +66,7 @@ module pw_engine (
 );
 
   // ---------------------------------------------------------------- state
-  reg [5:0]  pc;
+  reg [6:0]  pc;         // bit 6 = page; jumps stay inside the page
   reg [7:0]  x, y, isr, osr;
   reg [3:0]  isr_cnt, osr_cnt;  // bits shifted in / out (0..8)
   reg [3:0]  dly;
@@ -168,7 +168,7 @@ module pw_engine (
   endfunction
 
   // ---------------------------------------------------------------- execute
-  reg [5:0] n_pc;
+  reg [6:0] n_pc;
   reg [7:0] n_x, n_y, n_isr, n_osr, n_out, n_oe;
   reg [3:0] n_isr_cnt, n_osr_cnt, n_dly;
   reg       n_to;
@@ -179,7 +179,7 @@ module pw_engine (
   reg [7:0]  n_ph;
   reg [7:0]  f_bits;
   reg       done, jump, cond, need;
-  reg [5:0] jt;
+  reg [6:0] jt;
   reg [7:0] src_v, t8, o_src, o_new;
   reg [4:0] c5;
 
@@ -190,7 +190,7 @@ module pw_engine (
     f_en = 1'b0; f_lsb = 1'b1; f_bits = 8'd0;
     n_hold = crc_hold; n_lvl = lvl; n_last = last; n_run = run; n_ph = ph;
     emit = 1'b0; e_bit = 1'b0; e_lvl = 1'b0; line_io = 1'b0;
-    done = 1'b1; jump = 1'b0; cond = 1'b0; need = 1'b0; jt = 6'd0;
+    done = 1'b1; jump = 1'b0; cond = 1'b0; need = 1'b0; jt = 7'd0;
     src_v = 8'd0; t8 = 8'd0; o_src = 8'd0; o_new = 8'd0; c5 = 5'd0;
     tx_pop = 1'b0; rx_push = 1'b0; rx_data = isr; flag_set = 4'd0; flag_clr = 4'd0;
 
@@ -213,7 +213,7 @@ module pw_engine (
             3'd6: cond = pins_in[jmp_pin];
             default: cond = to_flag;
           endcase
-          if (cond) begin jump = 1'b1; jt = arg[5:0]; end
+          if (cond) begin jump = 1'b1; jt = {pc[6], arg[5:0]}; end
         end
 
         3'd1: begin  // WAIT
@@ -300,7 +300,7 @@ module pw_engine (
               3'd1: n_x = t8;
               3'd2: n_y = t8;
               3'd4: n_oe = map_pins(pins_oe, t8, out_base, out_count);
-              3'd5: begin jump = 1'b1; jt = t8[5:0]; end
+              3'd5: begin jump = 1'b1; jt = {pc[6], t8[5:0]}; end
               3'd6: begin n_isr = t8; n_isr_cnt = nbits; end
               default: ;
             endcase
@@ -347,7 +347,7 @@ module pw_engine (
             3'd2: n_y = t8;
             3'd3: begin n_isr = t8; n_isr_cnt = 4'd0; end
             3'd4: begin n_osr = t8; n_osr_cnt = 4'd0; end
-            3'd5: begin jump = 1'b1; jt = t8[5:0]; end
+            3'd5: begin jump = 1'b1; jt = {pc[6], t8[5:0]}; end
             3'd6: n_oe = map_pins(pins_oe, t8, out_base, out_count);
             default: ;
           endcase
@@ -400,7 +400,7 @@ module pw_engine (
         n_dly = delay_v;
         if (jump)                  n_pc = jt;
         else if (pc == wrap_top)   n_pc = wrap_bottom;
-        else                       n_pc = pc + 6'd1;
+        else                       n_pc = {pc[6], pc[5:0] + 6'd1};  // wraps inside the page
       end
     end
   end
@@ -408,7 +408,7 @@ module pw_engine (
   // ---------------------------------------------------------------- registers
   always @(posedge clk) begin
     if (!rst_n) begin
-      pc <= 6'd0; x <= 8'd0; y <= 8'd0; isr <= 8'd0; osr <= 8'd0;
+      pc <= 7'd0; x <= 8'd0; y <= 8'd0; isr <= 8'd0; osr <= 8'd0;
       isr_cnt <= 4'd0; osr_cnt <= 4'd8; dly <= 4'd0; div <= 16'd0;
       to_flag <= 1'b0; prev_pins <= 8'd0; pins_out <= 8'd0; pins_oe <= 8'd0;
       crc <= 16'd0; crc_hold <= 1'b0; lvl <= 1'b1; last <= 1'b0; run <= 3'd0; ph <= 8'd0;

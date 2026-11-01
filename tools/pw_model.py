@@ -51,7 +51,7 @@ class Config:
     pull_thresh: int = 0
     push_thresh: int = 0
     wrap_bottom: int = 0
-    wrap_top: int = 63
+    wrap_top: int = 127
     start_pc: int = 0
     crc_poly: int = 0
     crc_init: int = 0
@@ -185,7 +185,7 @@ class Engine:
             else:
                 ok = bool(self.to)
             if ok:
-                jump, jt = True, arg & 0x3F
+                jump, jt = True, (self.pc & 0x40) | (arg & 0x3F)
 
         elif op == 1:  # WAIT
             pol, src, tmo, idx = (arg >> 8) & 1, (arg >> 6) & 3, (arg >> 5) & 1, arg & 7
@@ -280,7 +280,7 @@ class Engine:
                 elif dst == 4:
                     s["pins_oe"] = _map_pins(self.pins_oe, t, c.out_base, c.out_count)
                 elif dst == 5:
-                    jump, jt = True, t & 0x3F
+                    jump, jt = True, (self.pc & 0x40) | (t & 0x3F)
                 elif dst == 6:
                     s["isr"], s["isr_cnt"] = t, n
 
@@ -318,7 +318,7 @@ class Engine:
             elif dst == 4:
                 s["osr"], s["osr_cnt"] = t, 0
             elif dst == 5:
-                jump, jt = True, t & 0x3F
+                jump, jt = True, (self.pc & 0x40) | (t & 0x3F)
             elif dst == 6:
                 s["pins_oe"] = _map_pins(self.pins_oe, t, c.out_base, c.out_count)
 
@@ -377,7 +377,7 @@ class Engine:
             elif self.pc == c.wrap_top:
                 s["pc"] = c.wrap_bottom
             else:
-                s["pc"] = (self.pc + 1) & 0x3F
+                s["pc"] = (self.pc & 0x40) | ((self.pc + 1) & 0x3F)   # wraps inside the page
 
         for k, v in s.items():
             setattr(self, k, v)
@@ -389,7 +389,7 @@ class Chip:
     """Both engines + shared flags, for running whole programs in Python."""
 
     def __init__(self):
-        self.imem = [0] * 64
+        self.imem = [0] * 128
         self.engines = [Engine(Config(), self.imem), Engine(Config(), self.imem)]
         self.flags = 0
         self.div = [0, 0]

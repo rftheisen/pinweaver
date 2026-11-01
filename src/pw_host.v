@@ -17,7 +17,7 @@ module pw_host (
     output reg  [7:0]  resp,
     // instruction memory / config writes
     output reg         imem_we,
-    output reg  [5:0]  imem_addr,
+    output reg  [6:0]  imem_addr,
     output reg  [15:0] imem_data,
     output reg         cfg_we,
     output reg  [7:0]  cfg_addr,
@@ -36,7 +36,7 @@ module pw_host (
     // debug read-back {la_trig, la_ptr, la_state, status, pc1, pc0}
     input  wire [47:0] dbg,
     // instruction memory read-back
-    output wire [5:0]  rd_addr,
+    output wire [6:0]  rd_addr,
     input  wire [15:0] rd_data,
     // shared flags
     output reg  [3:0]  flag_set,
@@ -69,7 +69,7 @@ module pw_host (
   endfunction
 
   // memory read-back: the address byte itself, then the auto-incrementing address
-  assign rd_addr = (phase == 4'd0) ? byte_data[5:0] : addr[5:0];
+  assign rd_addr = (phase == 4'd0) ? byte_data[6:0] : addr[6:0];
 
   // the byte to send next, decided when a byte arrives
   always @(*) begin
@@ -93,7 +93,7 @@ module pw_host (
     if (!rst_n) begin
       cmd <= 8'd0; phase <= 4'd0; addr <= 8'd0; hi <= 8'd0; hi_have <= 1'b0;
       sel <= 1'b0; pend <= 1'b0; en <= 2'd0;
-      imem_addr <= 6'd0; imem_data <= 16'd0; cfg_addr <= 8'd0; cfg_data <= 8'd0; tx_data <= 8'd0;
+      imem_addr <= 7'd0; imem_data <= 16'd0; cfg_addr <= 8'd0; cfg_data <= 8'd0; tx_data <= 8'd0;
     end else begin
       if (!active) pend <= 1'b0;
       if (byte_start && pend) begin
@@ -110,7 +110,7 @@ module pw_host (
               if (phase == 4'd0) addr <= byte_data;
               else if (!hi_have) begin hi <= byte_data; hi_have <= 1'b1; end
               else begin
-                imem_we <= 1'b1; imem_addr <= addr[5:0]; imem_data <= {hi, byte_data};
+                imem_we <= 1'b1; imem_addr <= addr[6:0]; imem_data <= {hi, byte_data};
                 addr <= addr + 8'd1; hi_have <= 1'b0;
               end
             C_CFG:

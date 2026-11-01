@@ -115,8 +115,10 @@ def assemble(src: str, origin: int = 0, name: str = "prog") -> Program:
 
     if not body:
         raise AsmError("empty program")
-    if origin + len(body) > 64:
-        raise AsmError("program does not fit in 64 words")
+    if origin + len(body) > 128:
+        raise AsmError("program does not fit in 128 words")
+    if origin // 64 != (origin + len(body) - 1) // 64:
+        raise AsmError("a program must sit inside one 64-word page (0-63 or 64-127)")
 
     nside = side_count + int(side_opt)
     delay_max = (1 << (4 - nside)) - 1

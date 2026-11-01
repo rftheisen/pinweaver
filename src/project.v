@@ -22,19 +22,19 @@ module tt_um_pinweaver (
   wire [7:0] byte_data, resp, status;
 
   wire        imem_we, cfg_we;
-  wire [5:0]  imem_addr;
+  wire [6:0]  imem_addr;
   wire [15:0] imem_data;
   wire [7:0]  cfg_addr, cfg_data, tx_data;
   wire [1:0]  en, restart, tx_push, rx_pop;
   wire        la_arm, la_stop, la_we, la_half;
-  wire [5:0]  la_waddr, la_ptr, la_trig, rd_addr;
+  wire [6:0]  la_waddr, la_ptr, la_trig, rd_addr;
   wire [15:0] la_wdata, imem_rd;
   wire [1:0]  la_state;
   wire [3:0]  host_fset, host_fclr;
 
   wire [1:0]  tx_empty, tx_full, rx_empty, rx_full;
   wire [7:0]  rx_head0, rx_head1;
-  wire [5:0]  pc0, pc1;
+  wire [6:0]  pc0, pc1;
   reg  [3:0]  flags;
 
   assign status = {~rx_empty[1], tx_full[1], ~rx_empty[0], tx_full[0], flags};
@@ -55,14 +55,14 @@ module tt_um_pinweaver (
       .en(en), .restart(restart), .la_arm(la_arm), .la_stop(la_stop),
       .tx_push(tx_push), .tx_data(tx_data), .rx_pop(rx_pop),
       .rx_head({rx_head1, rx_head0}), .rx_empty(rx_empty),
-      .dbg({2'b00, la_trig, 2'b00, la_ptr, 5'b0, la_half, la_state, status, 2'b00, pc1, 2'b00, pc0}),
+      .dbg({1'b0, la_trig, 1'b0, la_ptr, 5'b0, la_half, la_state, status, 1'b0, pc1, 1'b0, pc0}),
       .rd_addr(rd_addr), .rd_data(imem_rd),
       .flag_set(host_fset), .flag_clr(host_fclr)
   );
 
   // ------------------------------------------------------------ instruction memory
   // (also the logic analyzer's sample buffer; the analyzer wins a write clash)
-  reg [15:0] imem[0:63];
+  reg [15:0] imem[0:127];   // two 64-word pages
   always @(posedge clk) begin
     if (la_we) imem[la_waddr] <= la_wdata;
     else if (imem_we) imem[imem_addr] <= imem_data;
@@ -76,7 +76,7 @@ module tt_um_pinweaver (
   integer k;
   always @(posedge clk) begin
     if (!rst_n) begin
-      for (k = 0; k < 32; k = k + 1) cfg[k] <= ((k % 16) == 9) ? 8'd63 : 8'd0;
+      for (k = 0; k < 32; k = k + 1) cfg[k] <= ((k % 16) == 9) ? 8'd127 : 8'd0;
     end else if (cfg_we && cfg_addr[7:5] == 3'd0) begin
       cfg[cfg_addr[4:0]] <= cfg_data;
     end
@@ -96,7 +96,7 @@ module tt_um_pinweaver (
   reg [7:0] lacfg[0:7];
   always @(posedge clk) begin
     if (!rst_n) begin
-      for (k = 0; k < 8; k = k + 1) lacfg[k] <= (k == 1) ? 8'd63 : 8'd0;
+      for (k = 0; k < 8; k = k + 1) lacfg[k] <= (k == 1) ? 8'd127 : 8'd0;
     end else if (cfg_we && cfg_addr[7:3] == 5'd4) begin
       lacfg[cfg_addr[2:0]] <= cfg_data;
     end
@@ -132,7 +132,7 @@ module tt_um_pinweaver (
       .in_base(cfg[5][2:0]), .jmp_pin(cfg[5][5:3]),
       .out_shr(cfg[6][0]), .in_shr(cfg[6][1]), .autopull(cfg[6][2]), .autopush(cfg[6][3]),
       .pull_thresh(cfg[7][3:0]), .push_thresh(cfg[7][7:4]),
-      .wrap_bottom(cfg[8][5:0]), .wrap_top(cfg[9][5:0]), .start_pc(cfg[10][5:0]),
+      .wrap_bottom(cfg[8][6:0]), .wrap_top(cfg[9][6:0]), .start_pc(cfg[10][6:0]),
       .crc_poly({cfg[12], cfg[11]}), .crc_init({cfg[14], cfg[13]}),
       .crc_on_out(cfg[15][4]), .crc_on_in(cfg[15][5]),
       .lc_nrzi(lccfg[0][0]), .lc_diff(lccfg[0][1]), .lc_bitclk(lccfg[0][2]), .lc_resync(lccfg[0][3]),
@@ -153,7 +153,7 @@ module tt_um_pinweaver (
       .in_base(cfg[21][2:0]), .jmp_pin(cfg[21][5:3]),
       .out_shr(cfg[22][0]), .in_shr(cfg[22][1]), .autopull(cfg[22][2]), .autopush(cfg[22][3]),
       .pull_thresh(cfg[23][3:0]), .push_thresh(cfg[23][7:4]),
-      .wrap_bottom(cfg[24][5:0]), .wrap_top(cfg[25][5:0]), .start_pc(cfg[26][5:0]),
+      .wrap_bottom(cfg[24][6:0]), .wrap_top(cfg[25][6:0]), .start_pc(cfg[26][6:0]),
       .crc_poly({cfg[28], cfg[27]}), .crc_init({cfg[30], cfg[29]}),
       .crc_on_out(cfg[31][4]), .crc_on_in(cfg[31][5]),
       .lc_nrzi(lccfg[4][0]), .lc_diff(lccfg[4][1]), .lc_bitclk(lccfg[4][2]), .lc_resync(lccfg[4][3]),
@@ -168,7 +168,7 @@ module tt_um_pinweaver (
   // ------------------------------------------------------------ logic analyzer
   pw_la u_la (
       .clk(clk), .rst_n(rst_n), .arm(la_arm), .stop(la_stop),
-      .start(lacfg[0][5:0]), .last(lacfg[1][5:0]), .post(lacfg[2][5:0]),
+      .start(lacfg[0][6:0]), .last(lacfg[1][6:0]), .post(lacfg[2][5:0]),
       .div({lacfg[4], lacfg[3]}), .trig_mask(lacfg[5]), .trig_value(lacfg[6]),
       .trig_mode(lacfg[7][1:0]),
       .pins(pin_s2), .flag3(flags[3]),

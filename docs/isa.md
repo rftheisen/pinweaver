@@ -3,14 +3,17 @@
 PinWeaver has **2 pin engines**. Each one is a tiny CPU that runs one 16-bit
 instruction per *tick*. A tick happens every `CLKDIV + 1` system clocks, so a
 50 MHz clock with `CLKDIV = 0` gives 50 M ticks/s. The engines share one
-64-word instruction memory. Each engine has its own start address and wrap
-range, so two programs can sit side by side.
+128-word instruction memory made of two 64-word **pages** (0–63, 64–127).
+Each engine has its own start address and wrap range, so several programs
+can sit side by side. Jumps, `MOV PC` / `OUT PC` and the PC's own +1 stay
+inside the current page (the page is PC bit 6), so a program lives in one
+page and the assembler checks that it does not straddle two.
 
 ## Engine state
 
 | Register | Width | Use |
 |---|---|---|
-| `PC` | 6 | program counter (0–63) |
+| `PC` | 7 | program counter (0–127; bit 6 = page) |
 | `X`, `Y` | 8 | scratch / loop counters (`Y` is also the WAIT timeout counter) |
 | `OSR` | 8 | output shift register (filled from the host's TX FIFO) |
 | `ISR` | 8 | input shift register (pushed to the host's RX FIFO) |
@@ -109,7 +112,7 @@ copies X into OSR, and a non-blocking PUSH on a full FIFO is dropped.
 | 6 | `[0]` out_shr, `[1]` in_shr, `[2]` autopull, `[3]` autopush |
 | 7 | `[3:0]` pull_thresh, `[7:4]` push_thresh (0 = 8) |
 | 8 | wrap_bottom |
-| 9 | wrap_top (reset 63) |
+| 9 | wrap_top (reset 127) |
 | 10 | start PC |
 | 11, 12 | CRC polynomial low / high |
 | 13, 14 | CRC init value low / high |
@@ -182,7 +185,7 @@ the trigger: on an I2C START, a framing error or a bad CRC
 | Addr | Field |
 |---|---|
 | 32 | buffer first word |
-| 33 | buffer last word (reset 63) |
+| 33 | buffer last word (reset 127) |
 | 34 | words after the trigger word |
 | 35, 36 | sample divider low / high (sample every div + 1 clocks) |
 | 37 | trigger mask |
