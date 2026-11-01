@@ -21,6 +21,16 @@ def _map_pins(cur, data, base, count):
     return cur & M8
 
 
+def crc_feed(crc, bits, n, lsb_first, poly):
+    """Feed the n low bits of `bits` into the 16-bit bit-serial CRC (same as the RTL).
+    LSB first, or bit n-1 first. Shorter CRCs live in the top bits."""
+    for i in range(n):
+        b = (bits >> i) & 1 if lsb_first else (bits >> (n - 1 - i)) & 1
+        fb = b ^ ((crc >> 15) & 1)
+        crc = ((crc << 1) ^ (poly if fb else 0)) & 0xFFFF
+    return crc
+
+
 @dataclass
 class Config:
     clkdiv: int = 0
@@ -43,6 +53,10 @@ class Config:
     wrap_bottom: int = 0
     wrap_top: int = 63
     start_pc: int = 0
+    crc_poly: int = 0
+    crc_init: int = 0
+    crc_on_out: int = 0
+    crc_on_in: int = 0
 
 
 @dataclass
@@ -64,17 +78,19 @@ class Engine:
     prev_pins: int = 0
     pins_out: int = 0
     pins_oe: int = 0
+    crc: int = 0
 
     def restart(self, pins=0):
         self.pc = self.cfg.start_pc
         self.x = self.y = self.isr = self.osr = self.isr_cnt = self.dly = self.to = 0
         self.osr_cnt = 8
         self.prev_pins = pins
+        self.crc = self.cfg.crc_init
 
     def state(self):
         return dict(pc=self.pc, x=self.x, y=self.y, isr=self.isr, osr=self.osr,
                     isr_cnt=self.isr_cnt, osr_cnt=self.osr_cnt, dly=self.dly, to=self.to,
-                    pins_out=self.pins_out, pins_oe=self.pins_oe)
+                    pins_out=self.pins_out, pins_oe=self.pins_oe, crc=self.crc)
 
     def tick(self, pins, flags):
         """Run one tick. Returns (flag_set, flag_clr) masks."""
@@ -174,6 +190,8 @@ class Engine:
                     s["isr"], s["isr_cnt"] = 0, 0
             else:
                 s["isr"], s["isr_cnt"] = t, cnt
+            if done and c.crc_on_in:
+                s["crc"] = crc_feed(self.crc, v, n, c.in_shr, c.crc_poly)
 
         elif op == 3:  # OUT
             need = c.autopull and self.osr_cnt >= pull_t
@@ -187,6 +205,8 @@ class Engine:
                 else:
                     t, new = src >> (8 - n), (src << n) & M8
                 s["osr"], s["osr_cnt"] = new & M8, cnt
+                if c.crc_on_out:
+                    s["crc"] = crc_feed(self.crc, t, n, c.out_shr, c.crc_poly)
                 dst = (arg >> 6) & 7
                 if dst == 0:
                     s["pins_out"] = _map_pins(self.pins_out, t, c.out_base, c.out_count)
@@ -254,6 +274,21 @@ class Engine:
                     fset |= 1 << (v & 3)
                 else:
                     fclr |= 1 << (v & 3)
+
+        elif op == 7:  # CRC
+            sub = (arg >> 6) & 7
+            if sub == 0:
+                s["crc"] = c.crc_init
+            elif sub == 1:
+                s["x"] = self.crc & M8
+            elif sub == 2:
+                s["y"] = (self.crc >> 8) & M8
+            elif sub == 3:
+                s["osr"], s["osr_cnt"] = self.crc & M8, 0
+            elif sub == 4:
+                s["osr"], s["osr_cnt"] = (self.crc >> 8) & M8, 0
+            elif sub == 5:
+                s["crc"] = crc_feed(self.crc, self.x, n, 1, c.crc_poly)
 
         if side_valid:
             key = "pins_oe" if c.side_pindirs else "pins_out"

@@ -31,6 +31,10 @@ module pw_engine (
     input  wire [5:0]  wrap_bottom,
     input  wire [5:0]  wrap_top,
     input  wire [5:0]  start_pc,
+    input  wire [15:0] crc_poly,
+    input  wire [15:0] crc_init,
+    input  wire        crc_on_out,   // every OUT bit feeds the CRC
+    input  wire        crc_on_in,    // every IN bit feeds the CRC
     // instruction memory
     output wire [5:0]  pc_o,
     input  wire [15:0] instr,
@@ -60,6 +64,7 @@ module pw_engine (
   reg [15:0] div;
   reg        to_flag;
   reg [7:0]  prev_pins;
+  reg [15:0] crc;
 
   assign pc_o = pc;
 
@@ -113,6 +118,19 @@ module pw_engine (
     end
   endfunction
 
+  // Feed bits[0], bits[1], ... bits[n-1] into the 16-bit bit-serial CRC.
+  // Shorter CRCs live in the top bits (poly and init shifted left).
+  function [15:0] crc_feed(input [15:0] c_in, input [7:0] bits, input [3:0] n, input [15:0] poly);
+    integer i;
+    reg [15:0] c;
+    begin
+      c = c_in;
+      for (i = 0; i < 8; i = i + 1)
+        if (i < n) c = (c << 1) ^ ((bits[i] ^ c[15]) ? poly : 16'd0);
+      crc_feed = c;
+    end
+  endfunction
+
   function [7:0] bitrev(input [7:0] v);
     integer i;
     begin
@@ -125,6 +143,9 @@ module pw_engine (
   reg [7:0] n_x, n_y, n_isr, n_osr, n_out, n_oe;
   reg [3:0] n_isr_cnt, n_osr_cnt, n_dly;
   reg       n_to;
+  reg [15:0] n_crc;
+  reg        f_en, f_lsb;   // CRC feed this tick
+  reg [7:0]  f_bits;
   reg       done, jump, cond, need;
   reg [5:0] jt;
   reg [7:0] src_v, t8, o_src, o_new;
@@ -133,7 +154,8 @@ module pw_engine (
   always @(*) begin
     n_pc = pc; n_x = x; n_y = y; n_isr = isr; n_osr = osr;
     n_out = pins_out; n_oe = pins_oe;
-    n_isr_cnt = isr_cnt; n_osr_cnt = osr_cnt; n_dly = dly; n_to = to_flag;
+    n_isr_cnt = isr_cnt; n_osr_cnt = osr_cnt; n_dly = dly; n_to = to_flag; n_crc = crc;
+    f_en = 1'b0; f_lsb = 1'b1; f_bits = 8'd0;
     done = 1'b1; jump = 1'b0; cond = 1'b0; need = 1'b0; jt = 6'd0;
     src_v = 8'd0; t8 = 8'd0; o_src = 8'd0; o_new = 8'd0; c5 = 5'd0;
     tx_pop = 1'b0; rx_push = 1'b0; rx_data = isr; flag_set = 4'd0; flag_clr = 4'd0;
@@ -193,6 +215,7 @@ module pw_engine (
           end else begin
             n_isr = t8; n_isr_cnt = c5[3:0];
           end
+          if (done && crc_on_in) begin f_en = 1'b1; f_bits = src_v; f_lsb = in_shr; end
         end
 
         3'd3: begin  // OUT
@@ -207,6 +230,7 @@ module pw_engine (
             if (out_shr) begin t8 = o_src & nmask;           o_new = o_src >> nbits; end
             else         begin t8 = o_src >> (4'd8 - nbits); o_new = o_src << nbits; end
             n_osr = o_new; n_osr_cnt = c5[3:0];
+            if (crc_on_out) begin f_en = 1'b1; f_bits = t8; f_lsb = out_shr; end
             case (arg[8:6])
               3'd0: n_out = map_pins(pins_out, t8, out_base, out_count);
               3'd1: n_x = t8;
@@ -276,8 +300,21 @@ module pw_engine (
           endcase
         end
 
-        default: ;  // reserved: NOP
+        default: begin  // CRC
+          case (arg[8:6])
+            3'd0: n_crc = crc_init;
+            3'd1: n_x = crc[7:0];
+            3'd2: n_y = crc[15:8];
+            3'd3: begin n_osr = crc[7:0];  n_osr_cnt = 4'd0; end
+            3'd4: begin n_osr = crc[15:8]; n_osr_cnt = 4'd0; end
+            3'd5: begin f_en = 1'b1; f_bits = x; end
+            default: ;
+          endcase
+        end
       endcase
+
+      // one shared CRC unit
+      if (f_en) n_crc = crc_feed(crc, f_lsb ? f_bits : bitrev(f_bits << (4'd8 - nbits)), nbits, crc_poly);
 
       if (side_valid) begin
         if (side_pindirs) n_oe  = map_pins(n_oe,  {6'd0, side_v}, side_base, {2'd0, side_count});
@@ -299,17 +336,19 @@ module pw_engine (
       pc <= 6'd0; x <= 8'd0; y <= 8'd0; isr <= 8'd0; osr <= 8'd0;
       isr_cnt <= 4'd0; osr_cnt <= 4'd8; dly <= 4'd0; div <= 16'd0;
       to_flag <= 1'b0; prev_pins <= 8'd0; pins_out <= 8'd0; pins_oe <= 8'd0;
+      crc <= 16'd0;
     end else if (restart) begin
       pc <= start_pc; x <= 8'd0; y <= 8'd0; isr <= 8'd0; osr <= 8'd0;
       isr_cnt <= 4'd0; osr_cnt <= 4'd8; dly <= 4'd0; div <= 16'd0;
       to_flag <= 1'b0; prev_pins <= pins_in;
+      crc <= crc_init;
     end else begin
       if (enable) div <= (div == 16'd0) ? clkdiv : div - 16'd1;
       if (tick) begin
         prev_pins <= pins_in;
         pc <= n_pc; x <= n_x; y <= n_y; isr <= n_isr; osr <= n_osr;
         isr_cnt <= n_isr_cnt; osr_cnt <= n_osr_cnt; dly <= n_dly; to_flag <= n_to;
-        pins_out <= n_out; pins_oe <= n_oe;
+        pins_out <= n_out; pins_oe <= n_oe; crc <= n_crc;
       end
     end
   end

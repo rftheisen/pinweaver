@@ -56,7 +56,7 @@ instruction is current, including while it is stalled.
 | 4 | `PUSH` / `PULL` | `[8]` 0 = push, 1 = pull; `[7]` block |
 | 5 | `MOV dst, op src` | `[8:6]` dst, `[5:4]` op, `[2:0]` src |
 | 6 | `SET dst, value` | `[8:6]` dst, `[4:0]` value |
-| 7 | reserved (NOP) | later: CRC unit / logic-analyzer capture |
+| 7 | `CRC sub` | `[8:6]` sub-op, `[3:0]` n for `feed` (0 = 8) |
 
 **JMP conditions**: 0 always, 1 `!x` (X==0), 2 `x--` (X!=0, then X−1),
 3 `!y`, 4 `y--`, 5 `x!=y`, 6 `pin` (jmp_pin high), 7 `timeout` (TO set).
@@ -76,6 +76,17 @@ op 0 none, 1 invert (`~`), 2 bit-reverse (`::`), 3 increment (`+1`);
 src 0 pins, 1 X, 2 Y, 3 ISR, 4 OSR, 5 status `{TO, rx_full, tx_empty}`, 6 flags, 7 null.
 **SET destinations**: 0 pins, 1 X, 2 Y, 3 pindirs, 4 flag (value bit 4 = set/clear,
 bits 1:0 = flag number).
+
+**CRC unit** (one per engine; not in RP2040 PIO): a 16-bit bit-serial CRC
+register. With `crc_on_out` / `crc_on_in` set, every bit an OUT sends or an IN
+reads also feeds the CRC, in wire order and at no extra cost (an 8-bit OUT
+feeds 8 bits in one tick). An n-bit CRC lives in the top n bits: write
+`poly << (16 - n)` and `init << (16 - n)`, and read the result from the top.
+Sub-ops: 0 `crc init` (CRC ← init), 1 `crc x` (X ← CRC[7:0]), 2 `crc y`
+(Y ← CRC[15:8]), 3 `crc osr_lo`, 4 `crc osr_hi` (OSR ← a CRC byte, ready to
+send), 5 `crc feed n` (feed the n low bits of X, LSB first). Tested against the
+published check values of CRC-16/XMODEM, CRC-15/CAN, CRC-16/ARC, CRC-5/USB and
+CRC-16/USB.
 
 **Shifting**: `out_shr` / `in_shr` choose LSB-first (shift right) or MSB-first.
 With autopull, an OUT on an empty OSR (`shifted ≥ pull_thresh`) refills it from
@@ -98,6 +109,9 @@ copies X into OSR, and a non-blocking PUSH on a full FIFO is dropped.
 | 8 | wrap_bottom |
 | 9 | wrap_top (reset 63) |
 | 10 | start PC |
+| 11, 12 | CRC polynomial low / high |
+| 13, 14 | CRC init value low / high |
+| 15 | `[4]` crc_on_out, `[5]` crc_on_in |
 
 ## Host SPI interface
 
@@ -127,6 +141,7 @@ Other outputs: `uo[1]` / `uo[2]` = engine 0 / 1 has RX data (interrupt lines),
 | `spi_master.pw` | 10 | SPI mode 0 master, one byte per CS pulse |
 | `i2c_master.pw` | 50 | I2C master: START / STOP / WRITE / READ commands, clock stretching, stuck-bus timeout (flag 0) |
 | `timeout_demo.pw` | 10 | WAIT with a timeout |
+| `crc_demo.pw` | 12 | Hardware CRC over host bytes, returns the CRC |
 
 Assemble with `python tools/pw_asm.py programs/<name>.pw [origin]`. Run the tests
 from Windows with `wsl -d Ubuntu -- bash run.sh test` (needs OSS CAD Suite in

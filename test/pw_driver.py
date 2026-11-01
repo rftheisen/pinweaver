@@ -12,6 +12,7 @@ PROGRAMS = os.path.join(HERE, "..", "programs")
 
 # config field -> (register, bit offset, width); see docs/isa.md
 FIELDS = {
+    "clkdiv": (0, 0, 16),
     "out_base": (2, 0, 3), "out_count": (2, 3, 4),
     "set_base": (3, 0, 3), "set_count": (3, 3, 3),
     "side_base": (4, 0, 3), "side_count": (4, 3, 2), "side_en": (4, 5, 1), "side_pindirs": (4, 6, 1),
@@ -19,6 +20,8 @@ FIELDS = {
     "out_shr": (6, 0, 1), "in_shr": (6, 1, 1), "autopull": (6, 2, 1), "autopush": (6, 3, 1),
     "pull_thresh": (7, 0, 4), "push_thresh": (7, 4, 4),
     "wrap_bottom": (8, 0, 6), "wrap_top": (9, 0, 6), "start_pc": (10, 0, 6),
+    "crc_poly": (11, 0, 16), "crc_init": (13, 0, 16),
+    "crc_on_out": (15, 4, 1), "crc_on_in": (15, 5, 1),
 }
 
 
@@ -28,15 +31,14 @@ def load_program(name, origin=0):
 
 
 def config_bytes(cfg):
-    regs = [0] * 11
-    div = cfg.get("clkdiv", 0)
-    regs[0], regs[1] = div & 0xFF, div >> 8
+    regs = [0] * 16
     for key, val in cfg.items():
-        if key == "clkdiv":
-            continue
         reg, off, width = FIELDS[key]
         assert 0 <= val < (1 << width), f"{key}={val} does not fit"
-        regs[reg] |= val << off
+        if width == 16:
+            regs[reg], regs[reg + 1] = val & 0xFF, val >> 8
+        else:
+            regs[reg] |= val << off
     return regs
 
 

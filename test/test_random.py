@@ -18,7 +18,7 @@ RUNS = int(os.environ.get("PW_RUNS", "8"))
 CYCLES = int(os.environ.get("PW_CYCLES", "3000"))
 
 # opcode weights: fewer WAITs (they tend to stall forever on random pins)
-OP_WEIGHTS = [3, 1, 3, 3, 2, 3, 4, 1]
+OP_WEIGHTS = [3, 1, 3, 3, 2, 3, 4, 2]
 
 
 def random_word(rng):
@@ -32,7 +32,7 @@ def random_config(rng):
     return cfg
 
 
-REGS = ["pc", "x", "y", "isr", "osr", "isr_cnt", "osr_cnt", "dly", "to_flag", "pins_out", "pins_oe"]
+REGS = ["pc", "x", "y", "isr", "osr", "isr_cnt", "osr_cnt", "dly", "to_flag", "pins_out", "pins_oe", "crc"]
 
 
 def rtl_state(eng):

@@ -1,0 +1,20 @@
+; Hardware CRC demo: the host sends N-1, then N bytes; the engine sends back
+; the CRC (high byte, then low byte). Every OUT bit feeds the CRC.
+; Config: crc_on_out = 1, crc_poly / crc_init / crc_wm1 for the CRC you want,
+;         out_shr = 0 for MSB-first CRCs (XMODEM, CAN), 1 for LSB-first (USB, ARC).
+.program crc_demo
+.wrap_target
+    pull
+    out x, 8            ; byte count - 1 (this also feeds the CRC, so init after it)
+    crc init
+next:
+    pull
+    out null, 8         ; the CRC unit sees all 8 bits in one tick
+    jmp x-- next
+    crc osr_hi
+    in osr, 8
+    push
+    crc osr_lo
+    in osr, 8
+    push
+.wrap
