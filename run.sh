@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run from Windows with:  wsl -d Ubuntu -- bash run.sh [test|synth|synth_ihp|harden]
+# Run from Windows with:  wsl -d Ubuntu -- bash run.sh [test|gltest|synth|synth_ihp|harden]
 # Uses OSS CAD Suite unpacked in ~/tools/oss-cad-suite (simulator, yosys, cocotb).
 set -e
 cd "$(dirname "$0")"
@@ -10,6 +10,15 @@ case "${1:-test}" in
     cd test
     rm -rf sim_build results.xml
     python3 runner.py ${2:-}
+    python3 -m cocotb_tools.check_results results.xml
+    ;;
+  gltest)
+    # Gate-level tests (what GitHub's gl_test job runs) on the netlist from the last
+    # 'run.sh harden' (IHP uses the unpowered nl netlist). test_random is RTL-only.
+    cp ~/build/pinweaver/runs/wokwi/final/nl/tt_um_rftheisen_pinweaver.nl.v test/gate_level_netlist.v
+    cd test
+    rm -rf sim_build/gl results.xml
+    PDK_ROOT=~/tools/tt/pdk GATES=yes python3 runner.py ${2:-}
     python3 -m cocotb_tools.check_results results.xml
     ;;
   synth)
@@ -38,12 +47,16 @@ case "${1:-test}" in
     ln -sfn "$TT/tt-support-tools" "$B/tt"
     # Local only: cap OpenROAD's threads (default = every thread) so the PC stays usable,
     # e.g. with a VM running. PW_THREADS=16 bash run.sh harden for more.
-    python3 - "$B/src/config.json" "${PW_THREADS:-8}" <<'PY'
+    # Experiments: PW_DENSITY=30 overrides PL_TARGET_DENSITY_PCT in the build copy only.
+    python3 - "$B/src/config.json" "${PW_THREADS:-8}" "${PW_DENSITY:-}" <<'PY'
 import json, sys
-p, n = sys.argv[1], int(sys.argv[2])
+p, n, d = sys.argv[1], int(sys.argv[2]), sys.argv[3]
 c = json.load(open(p))
 c["OPENROAD_THREADS"] = n
 c["STA_THREADS"] = min(n, 3)
+if d:
+    c["PL_TARGET_DENSITY_PCT"] = int(d)
+    print(f"(experiment) PL_TARGET_DENSITY_PCT = {d}")
 json.dump(c, open(p, "w"), indent=2)
 PY
     cd "$B"
