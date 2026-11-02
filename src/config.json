@@ -30,6 +30,10 @@
   "//": "run.sh harden runs that same deck locally (tiling mode, ~9 minutes).",
   "RUN_MAGIC_DRC": 0,
 
+  "//": "OpenROAD threads. Unset, LibreLane 3.1.0.dev3 passes 'None' and OpenROAD falls back to one",
+  "//": "thread (routing ~4x slower on GitHub). GitHub's runners have 4 cores; run.sh harden overrides it.",
+  "OPENROAD_THREADS": 4,
+
   "//": "CLOCK_PERIOD - Increase this in case you are getting setup time violations.",
   "//": "The value is in nanoseconds, so 20ns == 50MHz.",
   "CLOCK_PERIOD": 20,
