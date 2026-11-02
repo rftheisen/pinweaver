@@ -61,6 +61,18 @@ PY
       [ -f "$d/runtime.txt" ] && echo "$(cat "$d/runtime.txt") $(basename "$d")"
     done | sort -r | head -8
     if [ $rc -eq 0 ]; then
+      # Official IHP DRC deck (what TT's precheck runs for IHP; Magic DRC is off in config.json),
+      # in tiling mode so it runs on several threads.
+      echo "=== IHP KLayout DRC ==="
+      t1=$(date +%s)
+      GDS="$B/runs/wokwi/final/gds/tt_um_rftheisen_pinweaver.gds"
+      docker run --rm --entrypoint "" -v "$TT/pdk:$TT/pdk" -v "$B:$B" -w "$B"         ghcr.io/librelane/librelane:3.1.0.dev3 klayout -b         -r "$TT/pdk/ihp-sg13cmos5l/libs.tech/klayout/tech/drc/ihp-sg13cmos5l.drc"         -rd input="$GDS" -rd report="$B/drc_ihp.lyrdb" -rd threads="${PW_THREADS:-8}"         -rd run_mode=tiling > "$B/drc_ihp.log" 2>&1 || rc=1
+      nviol=$(grep -c "<item>" "$B/drc_ihp.lyrdb" 2>/dev/null) || true
+      nviol=${nviol:-?}
+      [ "$nviol" = "0" ] || rc=1
+      echo "IHP DRC: $nviol violations in $(( $(date +%s) - t1 )) s (report: $B/drc_ihp.lyrdb)"
+      t=$(( $(date +%s) - t0 ))
+      echo "=== total $([ $rc -eq 0 ] && echo PASSED || echo FAILED) in $((t/60)) min $((t%60)) s ==="
       python3 ./tt/tt_tool.py --print-stats --ihp || true
       python3 ./tt/tt_tool.py --print-cell-category --ihp | tail -15 || true
     fi

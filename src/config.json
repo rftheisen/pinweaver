@@ -25,6 +25,11 @@
   "PNR_SDC_FILE": "dir::pinweaver.sdc",
   "SIGNOFF_SDC_FILE": "dir::pinweaver.sdc",
 
+  "//": "Skip Magic DRC here: it took 34 of 55 minutes on one core. For IHP, Tiny Tapeout's precheck",
+  "//": "job runs the official IHP KLayout DRC deck instead (Magic only for sky130/gf180), and",
+  "//": "run.sh harden runs that same deck locally (tiling mode, ~9 minutes).",
+  "RUN_MAGIC_DRC": 0,
+
   "//": "CLOCK_PERIOD - Increase this in case you are getting setup time violations.",
   "//": "The value is in nanoseconds, so 20ns == 50MHz.",
   "CLOCK_PERIOD": 20,
