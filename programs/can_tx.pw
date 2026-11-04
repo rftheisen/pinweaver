@@ -1,4 +1,4 @@
-; CAN 2.0A transmitter with arbitration, 500 kbit/s at 50 MHz.
+; CAN 2.0A transmitter with arbitration, 500 kbit/s at 33 MHz (or 50 MHz).
 ;
 ; The line coder does CAN bit stuffing (5 equal bits) and times every bit;
 ; the CRC unit makes the CRC-15. With lc_arb, the line coder compares what
@@ -8,9 +8,10 @@
 ; sees the receiver's ACK.
 ;
 ; Pins: OUT group = SET group = TX (1 pin), in_base = RX.
-; Config: clkdiv 4 (10 MHz ticks), out_shr 0 (MSB first), autopull (8);
+; Config: clkdiv 2 (11 MHz ticks at 33 MHz), out_shr 0 (MSB first), autopull (8);
 ;         CRC poly 0x8B32 (0x4599 << 1), init 0, crc_on_out;
-;         line coder bitclk, stuff 5 any, arb, bit = 20 ticks, sample point 14.
+;         line coder bitclk, stuff 5 any, arb, bit = 22 ticks, sample point 15.
+;         (At 50 MHz: clkdiv 4, bit = 20 ticks, sample point 14.)
 ; Host: push (frame bits - 1), then SOF .. data packed MSB first. While flag 2
 ;       is set, frames wait (clear it to start several senders at once).
 ; RX FIFO gets one byte per frame: bit 2 set = ACKed; 0xFF = lost arbitration

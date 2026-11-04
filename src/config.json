@@ -36,7 +36,10 @@
 
   "//": "CLOCK_PERIOD - Increase this in case you are getting setup time violations.",
   "//": "The value is in nanoseconds, so 20ns == 50MHz.",
-  "CLOCK_PERIOD": 20,
+  "//": "PinWeaver: 30 ns (33.3 MHz). An engine fetches (through the 128:1 latch read mux), decodes and",
+  "//": "executes in one clock, ~29 ns at the slow corner (1.08 V, 125 C). Rated 33 MHz; typical",
+  "//": "silicon (1.2 V, 25 C) has room for 50 MHz. See docs/info.md 'Clock'.",
+  "CLOCK_PERIOD": 30,
 
   "//": "Hold slack margin - Increase them in case you are getting hold violations.",
   "PL_RESIZER_HOLD_SLACK_MARGIN": 0.1,

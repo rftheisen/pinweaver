@@ -74,7 +74,14 @@ module pw_engine (
   reg [15:0] div;
   reg        to_flag;
   reg [7:0]  prev_pins;
-  reg [15:0] crc;
+  // The CRC update runs one clock after the instruction that feeds it: the feed is
+  // recorded in p_* and folded in by crc_feed from registers, so the fetch / decode
+  // and the 8-bit CRC chain are not in one cycle. 'crc' (below) is always the
+  // up-to-date value, so programs see no difference.
+  reg [15:0] crc_q;
+  reg        p_en;       // a feed is pending
+  reg [7:0]  p_bits;     // its bits, already in feed order
+  reg [3:0]  p_n;        // and how many
   reg        crc_hold;   // stop feeding the CRC (until crc init)
   reg        lvl;        // line coder: last line level (1 = idle / J)
   reg        last;       // line coder: last data bit
@@ -170,6 +177,8 @@ module pw_engine (
     end
   endfunction
 
+  wire [15:0] crc = p_en ? crc_feed(crc_q, p_bits, p_n, crc_poly) : crc_q;
+
   // ---------------------------------------------------------------- execute
   reg [6:0] n_pc;
   reg [7:0] n_x, n_y, n_isr, n_osr, n_out, n_oe;
@@ -177,6 +186,8 @@ module pw_engine (
   reg       n_to;
   reg [15:0] n_crc;
   reg        f_en, f_lsb;   // CRC feed this tick
+  reg        n_pen;
+  reg [7:0]  n_pbits;
   reg        n_hold, n_lvl, n_last, emit, e_bit, e_lvl, line_io;
   reg [2:0]  n_run;
   reg [7:0]  n_ph;
@@ -190,7 +201,7 @@ module pw_engine (
     n_pc = pc; n_x = x; n_y = y; n_isr = isr; n_osr = osr;
     n_out = pins_out; n_oe = pins_oe;
     n_isr_cnt = isr_cnt; n_osr_cnt = osr_cnt; n_dly = dly; n_to = to_flag; n_crc = crc;
-    f_en = 1'b0; f_lsb = 1'b1; f_bits = 8'd0;
+    f_en = 1'b0; f_lsb = 1'b1; f_bits = 8'd0; n_pen = 1'b0; n_pbits = 8'd0;
     n_hold = crc_hold; n_lvl = lvl; n_last = last; n_run = run; n_ph = ph;
     emit = 1'b0; e_bit = 1'b0; e_lvl = 1'b0; line_io = 1'b0;
     done = 1'b1; jump = 1'b0; cond = 1'b0; need = 1'b0; jt = 7'd0;
@@ -395,8 +406,9 @@ module pw_engine (
         else         n_out = map_pins(pins_out, {7'd0, e_lvl}, out_base, 4'd1);
       end
 
-      // one shared CRC unit
-      if (f_en) n_crc = crc_feed(crc, f_lsb ? f_bits : bitrev(f_bits << (4'd8 - nbits)), nbits, crc_poly);
+      // one shared CRC unit: record the feed; it is folded in next clock (see crc)
+      n_pen = f_en;
+      n_pbits = f_lsb ? f_bits : bitrev(f_bits << (4'd8 - nbits));
 
       if (side_valid) begin
         if (side_pindirs) n_oe  = map_pins(n_oe,  {6'd0, side_v}, side_base, {2'd0, side_count});
@@ -421,19 +433,22 @@ module pw_engine (
       pc <= 7'd0; x <= 8'd0; y <= 8'd0; isr <= 8'd0; osr <= 8'd0;
       isr_cnt <= 4'd0; osr_cnt <= 4'd8; dly <= 4'd0; div <= 16'd0;
       to_flag <= 1'b0; prev_pins <= 8'd0; pins_out <= 8'd0; pins_oe <= 8'd0;
-      crc <= 16'd0; crc_hold <= 1'b0; lvl <= 1'b1; last <= 1'b0; run <= 3'd0; ph <= 8'd0;
+      crc_q <= 16'd0; p_en <= 1'b0; p_bits <= 8'd0; p_n <= 4'd0;
+      crc_hold <= 1'b0; lvl <= 1'b1; last <= 1'b0; run <= 3'd0; ph <= 8'd0;
     end else if (restart) begin
       pc <= start_pc; x <= 8'd0; y <= 8'd0; isr <= 8'd0; osr <= 8'd0;
       isr_cnt <= 4'd0; osr_cnt <= 4'd8; dly <= 4'd0; div <= 16'd0;
       to_flag <= 1'b0; prev_pins <= pins_in;
-      crc <= crc_init; crc_hold <= 1'b0; lvl <= 1'b1; last <= 1'b0; run <= 3'd0; ph <= 8'd0;
+      crc_q <= crc_init; p_en <= 1'b0;
+      crc_hold <= 1'b0; lvl <= 1'b1; last <= 1'b0; run <= 3'd0; ph <= 8'd0;
     end else begin
       if (enable) div <= (div == 16'd0) ? clkdiv : div - 16'd1;
       if (tick) begin
         prev_pins <= pins_in;
         pc <= n_pc; x <= n_x; y <= n_y; isr <= n_isr; osr <= n_osr;
         isr_cnt <= n_isr_cnt; osr_cnt <= n_osr_cnt; dly <= n_dly; to_flag <= n_to;
-        pins_out <= n_out; pins_oe <= n_oe; crc <= n_crc;
+        pins_out <= n_out; pins_oe <= n_oe;
+        crc_q <= n_crc; p_en <= n_pen; p_bits <= n_pbits; p_n <= nbits;
         crc_hold <= n_hold; lvl <= n_lvl; last <= n_last; run <= n_run; ph <= n_ph;
       end
     end

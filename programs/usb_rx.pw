@@ -5,7 +5,7 @@
 ;
 ; Pins: in_base = D-, D+ = in_base + 1.
 ; Config: in_shr 1, autopush (8); line coder nrzi, diff, bitclk, resync,
-;         stuff 6, bit = 33 ticks, sample point ~ half a bit.
+;         stuff 6, bit = 22 ticks at 33 MHz (33 at 50 MHz), sample point ~ half a bit.
 ; The host gets SYNC (0x80), PID, payload, CRC low, CRC high; flag 1 = packet done.
 .program usb_rx
 .wrap_target

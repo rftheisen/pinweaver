@@ -2,7 +2,8 @@
 
 PinWeaver has **2 pin engines**. Each one is a tiny CPU that runs one 16-bit
 instruction per *tick*. A tick happens every `CLKDIV + 1` system clocks, so a
-50 MHz clock with `CLKDIV = 0` gives 50 M ticks/s. The engines share one
+33 MHz clock with `CLKDIV = 0` gives 33 M ticks/s (the chip is rated
+33 MHz; typical parts run at 50 MHz, see `docs/info.md`). The engines share one
 128-word instruction memory (built from latches) made of two 64-word
 **pages** (0–63, 64–127).
 Each engine has its own start address and wrap range, so several programs
@@ -226,7 +227,7 @@ but still waits for the bit clock and any pending stuff bit).
   timing comes from the clock, not from counted delays. With **`resync`**, an
   edge on the IN pin resets the phase, a small digital PLL that keeps a
   receiver locked to a sender whose clock is a little off (USB needs this:
-  33 ticks vs 33.33 clocks per bit at 50 MHz).
+  22.2 ticks per bit at 33.3 MHz, 33.3 at 50 MHz).
 * **Read-back / arbitration** (`arb`, for CAN): at each sample point, if the
   last level we put on the pin was recessive (1) but the IN pin reads dominant
   (0), TO is set, and from then on coded OUTs send recessive whatever the

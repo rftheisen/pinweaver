@@ -5,8 +5,8 @@
 ;
 ; Pins: D- = OUT base, D+ = OUT base + 1 (OUT count 2), SET group = D-, D+.
 ; Config: out_shr 1, autopull (8); CRC poly 0x8005, init 0xFFFF, crc_on_out;
-;         line coder nrzi, diff, bitclk, stuff 6, bit = 33 ticks (clkdiv 0
-;         at 50 MHz), sample point 0.
+;         line coder nrzi, diff, bitclk, stuff 6, bit = 22 ticks (clkdiv 0
+;         at 33 MHz; 33 ticks at 50 MHz), sample point 0.
 ; Host: push (payload bits - 1), PID, payload bytes, then set flag 2.
 .program usb_tx
     set pins, 1              ; J = idle (D- high, D+ low)

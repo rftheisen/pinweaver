@@ -31,6 +31,16 @@ Example programs (in `programs/` of the repository): UART TX / RX, SPI master,
 I2C master with clock stretching, low-speed USB send / receive, CAN with
 arbitration, ARM SWD, PS/2 and JTAG. The instruction set is in `docs/isa.md`.
 
+## Clock
+
+PinWeaver is rated for **33 MHz** at every process corner, including the
+slow one (1.08 V, 125 C). Each engine fetches its instruction from the latch
+memory, decodes and executes it in a single clock, and that path takes about
+29 ns on a slow chip. A typical chip at room temperature and 1.2 V has room
+for **50 MHz**. Programs take their timing from each engine's clock divider
+and bit period, so the same program runs at either speed with different
+settings (the example programs list both).
+
 ## How to test
 
 Use an SPI host (for example the RP2040 on the Tiny Tapeout demo board) on
