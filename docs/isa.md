@@ -158,6 +158,7 @@ Other outputs: `uo[1]` / `uo[2]` = engine 0 / 1 has RX data (interrupt lines),
 | `uart_rx.pw` | 10 | UART receiver, samples mid-bit, drops frames with a bad stop bit |
 | `spi_master.pw` | 10 | SPI mode 0 master, one byte per CS pulse |
 | `i2c_master.pw` | 50 | I2C master: START / STOP / WRITE / READ commands, clock stretching, stuck-bus timeout (flag 0) |
+| `i2c_target.pw` | 61 | I2C device side: the host decides every ACK and every byte sent, holding SCL (clock stretching) while it thinks; reports START (flag 1) / STOP (flag 2). Emulates a sensor or EEPROM, or a faulty one |
 | `timeout_demo.pw` | 10 | WAIT with a timeout |
 | `crc_demo.pw` | 12 | Hardware CRC over host bytes, returns the CRC |
 | `la_trigger.pw` | 3 | Fires the logic analyzer (flag 3) when GPIO 7 goes high |

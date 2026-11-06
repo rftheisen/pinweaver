@@ -1,0 +1,102 @@
+; I2C target (device side): PinWeaver pretends to be an I2C device, and the
+; host decides what the device says. After every byte the master sends, the
+; target holds SCL low (clock stretching) until the host answers, so a host
+; script can play any device: a sensor, an EEPROM, an optical module's
+; management port, or a broken one (NACK, answer slowly, never answer).
+;
+; Open drain: both lines only ever drive 0 (output enable 1 = pull low).
+; Pins: SET group = OUT group = SDA (1 pin), side-set = SCL (pindirs),
+;       in_base = SDA so "pin 0" = SDA and "pin 1" = SCL, jmp_pin = SDA.
+; Config: out_shr 0, in_shr 0 (MSB first), no autopush / autopull. Run the
+;         target fast (clkdiv 0): it must see each SCL edge well within the
+;         SCL low / high time (at 33 MHz, 100 and 400 kHz buses are easy).
+;
+; To the host (RX FIFO):
+;   every byte the master sends (address bytes too)  -> then SCL is held
+;     until the host replies; flag 1 is set while that byte is an address
+;   after each byte the master reads: its ACK bit (0 = more, 1 = last)
+; From the host (TX FIFO):
+;   reply to a received byte: 0x00 ACK, 0x80 NACK, 0x40 ACK and the master
+;     reads next (follow it with the first byte to send)
+;   after an ACK bit 0: the next byte to send (SCL is held until it comes)
+; Flag 2 is set on every STOP the target sees (the host clears it).
+.program i2c_target
+.side_set 1 opt pindirs
+    set pins, 0                     ; output values stay 0 (open drain)
+    set pindirs, 0      side 0      ; release SDA and SCL
+    set y, 0                        ; Y stays 0: every "wait ... timeout" is a one-tick test
+.wrap_target
+idle:                               ; watch for START / STOP, ignore other traffic
+    jmp pin idle_hi
+idle_lo:
+    wait 1 pin 0                    ; SDA rose...
+    wait 1 pin 1 timeout            ; ...while SCL is high?
+    jmp timeout idle_hi             ; no: just data
+stop:
+    flag set 2                      ; STOP
+idle_hi:
+    wait 0 pin 0                    ; SDA fell...
+    wait 1 pin 1 timeout            ; ...while SCL is high?
+    jmp timeout idle_lo             ; no: just data
+start:
+    flag set 1                      ; START: the next byte is an address
+    mov isr, null
+rx_byte:
+    wait 0 pin 1                    ; SCL low
+    wait 1 pin 1                    ; SCL high: first bit
+    in pins, 1
+    jmp pin first_one
+first_zero:                         ; SDA rising now = STOP
+    jmp pin stop
+    wait 0 pin 1 timeout
+    jmp timeout first_zero
+    jmp rest
+first_one:                          ; SDA falling now = repeated START
+    jmp pin one_poll
+    jmp start
+one_poll:
+    wait 0 pin 1 timeout
+    jmp timeout first_one
+rest:
+    set x, 6                        ; 7 more bits
+rbit:
+    wait 1 pin 1
+    in pins, 1
+    wait 0 pin 1
+    jmp x-- rbit
+    push                side 1      ; the byte to the host; hold SCL low
+    pull                side 1      ; wait for the host's reply
+    out x, 1            side 1      ; bit 7: NACK
+    jmp !x ack          side 1
+    jmp idle            side 0      ; NACK: leave SDA released, let SCL go
+ack:
+    set pindirs, 1      side 1      ; ACK: pull SDA low
+    out x, 1            side 1      ; bit 6: the master reads next
+    flag clear 1        side 0 [1]  ; let SCL go
+    wait 1 pin 1                    ; the master clocks the ACK
+    wait 0 pin 1
+    jmp !x rx_data
+tx:
+    pull                side 1      ; the byte to send (hold SCL until it comes)
+    mov osr, ~osr       side 1      ; a 1 bit = release SDA, so invert
+    set x, 6            side 1
+    out pindirs, 1      side 1 [1]  ; bit 7 on SDA
+tbit:
+    wait 1 pin 1        side 0      ; let SCL go; the master clocks the bit
+    wait 0 pin 1
+    out pindirs, 1                  ; next bit
+    jmp x-- tbit
+    wait 1 pin 1                    ; bit 0
+    wait 0 pin 1
+    set pindirs, 0                  ; release SDA for the master's ACK
+    wait 1 pin 1
+    in pins, 1                      ; the master's ACK bit
+    mov x, isr
+    wait 0 pin 1
+    push                side 1      ; report it; hold SCL in case more follows
+    jmp !x tx           side 1      ; ACK: send the next byte
+    jmp idle            side 0      ; NACK: done; STOP or repeated START next
+rx_data:
+    set pindirs, 0                  ; release SDA after our ACK
+    jmp rx_byte
+.wrap

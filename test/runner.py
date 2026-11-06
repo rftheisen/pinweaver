@@ -49,4 +49,4 @@ def main(modules):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:] or ["test", "test_i2c", "test_crc", "test_la", "test_usb", "test_pages", "test_can", "test_swd", "test_ps2", "test_jtag", "test_mem", "test_random"])
+    main(sys.argv[1:] or ["test", "test_i2c", "test_i2c_target", "test_crc", "test_la", "test_usb", "test_pages", "test_can", "test_swd", "test_ps2", "test_jtag", "test_mem", "test_random"])

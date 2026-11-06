@@ -41,9 +41,11 @@ TOPLEVEL = tb
 # List test modules to run, separated by commas and without the .py suffix:
 COCOTB_TEST_MODULES = test,test_i2c,test_crc,test_la,test_usb,test_pages,test_can,test_swd,test_ps2,test_jtag,test_mem
 # test_random compares the engines' internal registers with the Python model; the gate-level
-# netlist is flattened and has no such names, so it runs on RTL only.
+# netlist is flattened and has no such names, so it runs on RTL only. test_i2c_target is only
+# firmware on hardware the other tests already cover, and takes ~4 min on gates (it passes there:
+# run.sh gltest test_i2c_target), so CI runs it on RTL only to keep the gate-level job short.
 ifneq ($(GATES),yes)
-COCOTB_TEST_MODULES := $(COCOTB_TEST_MODULES),test_random
+COCOTB_TEST_MODULES := $(COCOTB_TEST_MODULES),test_i2c_target,test_random
 endif
 
 # include cocotb's make rules to take care of the simulator setup

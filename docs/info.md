@@ -28,7 +28,8 @@ extra hardware that PIO lacks.
   data through 8-byte FIFOs per engine, and reads state and captures back.
 
 Example programs (in `programs/` of the repository): UART TX / RX, SPI master,
-I2C master with clock stretching, low-speed USB send / receive, CAN with
+I2C master with clock stretching, an I2C target that lets the host script
+a device (including faulty ones: NACKs, slow answers, a hung bus), low-speed USB send / receive, CAN with
 arbitration, ARM SWD, PS/2 and JTAG. The instruction set is in `docs/isa.md`.
 
 ## Clock
